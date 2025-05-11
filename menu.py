@@ -1,8 +1,12 @@
 import customtkinter as ctk
 from image_file import find_image
-from product import Product
+from patient import PatientManager
 from newuser import NewUser
-
+from disease import DiseaseManager
+from signs import SignManager
+from symptoms import SymptomManager
+from tests import TestManager
+from intelligentdiagnosis import DiagnosisManagement
 
 class MenuApp(ctk.CTkFrame):
     def __init__(self, master, on_logout):
@@ -58,92 +62,98 @@ class MenuApp(ctk.CTkFrame):
         seller_label = ctk.CTkLabel(top_frame, text=name, font=("Arial", 20, "bold"), text_color="#000000")
         seller_label.pack(pady=(0, 0))  # Espaciado entre elementos
 
-        product_img = find_image("images/products.png", 50)
-        product_button = ctk.CTkButton(
+        patient_img = find_image("images/patient.png", 50)
+        patient_button = ctk.CTkButton(
             menuScreen,
             text="", 
-            image=product_img, 
+            image=patient_img, 
             width=200, 
             height=200, 
             fg_color="#FFFFFF", 
             command=self.Btn_product
         )
 
-        product_button.image = product_img
-        product_button.place(x=100, y=20)
+        patient_button.image = patient_button
+        patient_button.place(x=100, y=20)
 
-        sales_img = find_image("images/sales.png", 70)
-        sales_button = ctk.CTkButton(
+        disease_img = find_image("images/disease.png", 70)
+        disease_button = ctk.CTkButton(
             menuScreen,
             text="", 
-            image=sales_img, 
+            image=disease_img, 
             width=200, 
             height=200, 
             fg_color="#FFFFFF", 
             command=self.Btn_sales
         )
 
-        sales_button.image = sales_img
-        sales_button.place(x=400, y=20)
+        disease_button.image = disease_button
+        disease_button.place(x=400, y=20)
 
-        reports_img = find_image("images/report.png", 70)
-        reports_button = ctk.CTkButton(
+        sign_img = find_image("images/sign.png", 70)
+        sign_button = ctk.CTkButton(
             menuScreen,
             text="", 
-            image=reports_img, 
+            image=sign_img, 
             width=200, 
             height=200, 
             fg_color="#FFFFFF", 
-            command=self.Btn_sales
+            command=self.Btn_Signs
         )
 
-        reports_button.image = reports_img
-        reports_button.place(x=700, y=20)
+        sign_button.image = sign_button
+        sign_button.place(x=700, y=20)
 
-        clients_img = find_image("images/clients.png", 70)
-        clients_button = ctk.CTkButton(
+        symptom_img = find_image("images/symptom.png", 70)
+        symptom_button = ctk.CTkButton(
             menuScreen,
             text="", 
-            image=clients_img, 
+            image=symptom_img, 
             width=200, 
             height=200, 
             fg_color="#FFFFFF", 
-            command=self.Btn_sales
+            command=self.Btn_Symptom
         )
 
-        clients_button.image = clients_img
-        clients_button.place(x=100, y=300)
+        symptom_button.image = symptom_button
+        symptom_button.place(x=100, y=300)
 
-        workers_img = find_image("images/worker.png", 70)
-        workers_button = ctk.CTkButton(
+        test_img = find_image("images/test.png", 70)
+        test_button = ctk.CTkButton(
             menuScreen,
             text="", 
-            image=workers_img, 
+            image=test_img, 
             width=200, 
             height=200, 
             fg_color="#FFFFFF", 
-            command=self.Btn_sales
+            command=self.Btn_Test
         )
 
-        workers_button.image = workers_img
-        workers_button.place(x=400, y=300)
+        test_button.image = test_button
+        test_button.place(x=400, y=300)
 
-        settings_img = find_image("images/settings.png", 70)
-        settings_button = ctk.CTkButton(
+        diagnostic_img = find_image("images/diagnostic.png", 70)
+        diagnostic_button = ctk.CTkButton(
             menuScreen,
             text="", 
-            image=settings_img, 
+            image=diagnostic_img, 
             width=200, 
             height=200, 
             fg_color="#FFFFFF", 
-            command=self.Btn_sales
+            command=self.Btn_Diagnosis
         )
 
-        settings_button.image = settings_img
-        settings_button.place(x=700, y=300)
+        diagnostic_button.image = diagnostic_button
+        diagnostic_button.place(x=700, y=300)
 
-        self.productScreen = Product(self, self.show_Menu_Screen)
+        self.newPatient = PatientManager(self, self.show_Menu_Screen)
         self.newUser = NewUser(self, self.show_back_to_MainScreen)
+        self.newDisease = DiseaseManager(self, self.Disease_show_back_to_MainScreen)
+        self.newSign = SignManager(self, self.Sign_show_back_to_MainScreen)
+        self.newSymptom = SymptomManager(self, self.Symptom_show_back_to_MainScreen)
+        self.newTest = TestManager(self, self.Test_show_back_to_MainScreen)
+        self.newDiagnosis = DiagnosisManagement(self, self.Diagnosis_show_back_to_MainScreen)
+
 
         self.bind("<Button-1>", self.close_dropdown)
         self.dropdown_frame.bind("<Button-1>", lambda e: e.stop_propagation())
@@ -152,14 +162,34 @@ class MenuApp(ctk.CTkFrame):
     
     def Btn_product(self):
         self.main_frame.pack_forget()
-        self.productScreen.pack(fill="both", expand=True)
+        self.newPatient.pack(fill="both", expand=True)
 
     def show_Menu_Screen(self):
-        self.productScreen.pack_forget()  # Ocultar la segunda pantalla
+        self.newPatient.pack_forget()  # Ocultar la segunda pantalla
         self.main_frame.pack(fill="both", expand=True)  # Mostrar la primera pantalla
 
     def show_back_to_MainScreen(self):
         self.newUser.pack_forget()  # Ocultar la segunda pantalla
+        self.main_frame.pack(fill="both", expand=True)  # Mostrar la primera pantalla
+
+    def Disease_show_back_to_MainScreen(self):
+        self.newDisease.pack_forget()  # Ocultar la segunda pantalla
+        self.main_frame.pack(fill="both", expand=True)  # Mostrar la primera pantalla
+    
+    def Sign_show_back_to_MainScreen(self):
+        self.newSign.pack_forget()  # Ocultar la segunda pantalla
+        self.main_frame.pack(fill="both", expand=True)  # Mostrar la primera pantalla
+    
+    def Symptom_show_back_to_MainScreen(self):
+        self.newSymptom.pack_forget()  # Ocultar la segunda pantalla
+        self.main_frame.pack(fill="both", expand=True)  # Mostrar la primera pantalla
+    
+    def Test_show_back_to_MainScreen(self):
+        self.newTest.pack_forget()  # Ocultar la segunda pantalla
+        self.main_frame.pack(fill="both", expand=True)  # Mostrar la primera pantalla
+    
+    def Diagnosis_show_back_to_MainScreen(self):
+        self.newDiagnosis.pack_forget()  # Ocultar la segunda pantalla
         self.main_frame.pack(fill="both", expand=True)  # Mostrar la primera pantalla
 
     def toggle_dropdown(self):
@@ -204,5 +234,22 @@ class MenuApp(ctk.CTkFrame):
         self.toggle_dropdown()
 
     def Btn_sales(self):
-        print("")
+        self.main_frame.pack_forget()
+        self.newDisease.pack(fill="both", expand=True)
+
+    def Btn_Signs(self):
+        self.main_frame.pack_forget()
+        self.newSign.pack(fill="both", expand=True)
+
+    def Btn_Symptom(self):
+        self.main_frame.pack_forget()
+        self.newSymptom.pack(fill="both", expand=True)
+    
+    def Btn_Test(self):
+        self.main_frame.pack_forget()
+        self.newTest.pack(fill="both", expand=True)
+    
+    def Btn_Diagnosis(self):
+        self.main_frame.pack_forget()
+        self.newDiagnosis.pack(fill="both", expand=True)
 
