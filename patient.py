@@ -2,6 +2,9 @@ import customtkinter as ctk
 from tkinter import ttk, messagebox
 from datetime import datetime
 from image_file import find_image
+from conection import ConectionDB
+from ErrorPopUp import Error
+from datetime import datetime
 
 class PatientManager(ctk.CTkFrame):
     def __init__(self, master, return_menu):
@@ -27,8 +30,42 @@ class PatientManager(ctk.CTkFrame):
         self.main_frame.pack(fill="both", expand=True)
         
         self.create_interfaces()
-        self.load_sample_data()
+        self.load_patients()
         self.show_view_patients()
+
+    def load_patients(self):
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                # Ajusta la consulta a tu tabla y campos
+                query = "SELECT * FROM Patient"
+                cursor.execute(query)
+                resultados = cursor.fetchall()
+
+        except Exception as e:
+            print(f"Error durante la consulta: {e}")
+            Error(self, "Error al consultar la base de datos.")
+        finally:
+            connection.close()
+
+        # Datos de ejemplo
+        self.patients = [
+            {
+                "id_patient": row[0],
+                "name": row[1],
+                "birth_date": row[2].strftime("%Y-%m-%d %H:%M:%S"),
+                "gender": row[3],
+                "address": row[4],
+                "phone": row[5]
+            }
+            for row in resultados
+        ]
 
     def create_interfaces(self):
         # Frame superior con botones
@@ -50,8 +87,8 @@ class PatientManager(ctk.CTkFrame):
 
     def create_crud_buttons(self):
         ctk.CTkButton(self.top_frame, text="Nuevo", width=80, command=self.show_add_patient).pack(side="left", padx=5)
-        ctk.CTkButton(self.top_frame, text="Editar", width=80, command=self.show_delete_patient).pack(side="left", padx=5)
-        ctk.CTkButton(self.top_frame, text="Eliminar", width=80, command=self.show_update_patient).pack(side="left", padx=5)
+        ctk.CTkButton(self.top_frame, text="Editar", width=80, command=self.show_update_patient).pack(side="left", padx=5)
+        ctk.CTkButton(self.top_frame, text="Eliminar", width=80, command=self.show_delete_patient).pack(side="left", padx=5)
         ctk.CTkButton(self.top_frame, text="Ver", width=80, command=self.show_view_patients).pack(side="left", padx=5)
         ctk.CTkButton(self.top_frame, text="Nueva Consulta", width=80, command=self.show_consultation).pack(side="left", padx=5)
 
@@ -69,6 +106,7 @@ class PatientManager(ctk.CTkFrame):
         
     def show_view_patients(self):
         self.show_screen(self.viewpatient_screen)
+        self.load_patients()
         self.load_patients_to_view()
         
     def show_consultation(self):
@@ -106,7 +144,6 @@ class PatientManager(ctk.CTkFrame):
         fields = [
             ("Nombre Completo:", 80, 50),
             ("Fecha Nacimiento (AAAA-MM-DD):", 80, 130),
-            ("Género:", 80, 210),
             ("Dirección:", 80, 290),
             ("Teléfono:", 80, 370)
         ]
@@ -118,7 +155,14 @@ class PatientManager(ctk.CTkFrame):
             
             entry = ctk.CTkEntry(self.addpatient_screen, width=300, height=40, fg_color="#FFFFFF")
             entry.place(x=x, y=y+30)
-            self.add_entries[text.split(":")[0].strip().lower()] = entry
+            
+            # Usa el texto sin los espacios y los dos puntos para las claves
+            field_key = text.split(":")[0].strip().lower()
+            self.add_entries[field_key] = entry
+
+        # ComboBox para el género
+        label = ctk.CTkLabel(self.addpatient_screen, text="Género:", font=("Arial", 16), text_color="#000000")
+        label.place(x=80, y=210)
 
         self.gender_combobox = ctk.CTkComboBox(
             self.addpatient_screen,
@@ -128,34 +172,65 @@ class PatientManager(ctk.CTkFrame):
         )
         self.gender_combobox.place(x=80, y=250)
 
+
         ctk.CTkButton(
             self.addpatient_screen,
             text="Guardar Paciente",
             command=self.save_patient,
             fg_color="#4CAF50",
             hover_color="#45a049"
-        ).place(x=400, y=450)
+        ).place(x=800, y=20)
 
     def save_patient(self):
+        db = ConectionDB()
+        connection = db.connect()
         patient_data = {
-            "id_patient": len(self.patients) + 1,
             "name": self.add_entries["nombre completo"].get(),
-            "birth_date": self.add_entries["fecha nacimiento"].get(),
+            "birth_date": self.add_entries["fecha nacimiento (aaaa-mm-dd)"].get(),
             "gender": self.gender_combobox.get(),
             "address": self.add_entries["dirección"].get(),
             "phone": self.add_entries["teléfono"].get()
         }
-        
+
         # Validación básica
         if not all(patient_data.values()):
             messagebox.showerror("Error", "Todos los campos son obligatorios")
             return
-            
-        self.patients.append(patient_data)
-        messagebox.showinfo("Éxito", "Paciente guardado correctamente")
-        self.show_view_patients()
+
+        # Convertir la fecha de nacimiento a datetime
+        try:
+            birth_date = datetime.strptime(patient_data["birth_date"], "%Y-%m-%d")  # Ajusta el formato según el input
+        except ValueError:
+            messagebox.showerror("Error", "El formato de la fecha de nacimiento es incorrecto. Debe ser YYYY-MM-DD")
+            return
+
+        # Ahora podemos insertar la fecha convertida en la base de datos
+        try:
+            with connection.cursor() as cursor:
+                query = """
+                INSERT INTO Patient (name, birth_date, gender, address, phone)
+                VALUES (%s, %s, %s, %s, %s)
+                """
+                cursor.execute(query, (
+                    patient_data["name"],
+                    birth_date,  # Fecha convertida a datetime
+                    patient_data["gender"],
+                    patient_data["address"],
+                    patient_data["phone"]
+                ))
+                connection.commit()
+            messagebox.showinfo("Éxito", "Paciente guardado correctamente")
+            self.show_view_patients()
+
+        except Exception as e:
+            print(f"Error al insertar paciente: {e}")
+            messagebox.showerror("Error", "No se pudo guardar el paciente")
+        finally:
+            connection.close()
+        self.load_patients()
 
     def create_delete_patient_ui(self):
+        # Crear la pantalla de eliminación de pacientes
         self.deletepatient_screen = ctk.CTkFrame(self.main_frame, fg_color="#969696")
         
         # Treeview para mostrar pacientes
@@ -173,11 +248,16 @@ class PatientManager(ctk.CTkFrame):
             fg_color="#FF5252",
             hover_color="#FF0000"
         ).place(x=300, y=470)
+        
+        # Llamar a la función para cargar pacientes
+        self.load_patients_to_delete()
 
     def load_patients_to_delete(self):
+        # Eliminar las filas anteriores del Treeview
         for item in self.delete_tree.get_children():
             self.delete_tree.delete(item)
-            
+        
+        # Insertar los pacientes en el Treeview
         for patient in self.patients:
             self.delete_tree.insert("", "end", values=(
                 patient["id_patient"],
@@ -186,15 +266,52 @@ class PatientManager(ctk.CTkFrame):
             ))
 
     def delete_selected_patient(self):
+        # Obtener el paciente seleccionado en el Treeview
         selected = self.delete_tree.selection()
+        
         if not selected:
             messagebox.showwarning("Error", "Seleccione un paciente para eliminar")
             return
-            
+        
+        # Obtener el ID del paciente seleccionado
         patient_id = self.delete_tree.item(selected[0])["values"][0]
-        self.patients = [p for p in self.patients if p["id_patient"] != patient_id]
-        messagebox.showinfo("Éxito", "Paciente eliminado correctamente")
-        self.load_patients_to_delete()
+        
+        # Confirmar la eliminación
+        confirm = messagebox.askyesno("Confirmar Eliminación", f"¿Estás seguro de eliminar el paciente con ID {patient_id}?")
+        if confirm:
+            # Eliminar el paciente de la lista
+            self.patients = [p for p in self.patients if p["id_patient"] != patient_id]
+            
+            # Eliminar el paciente de la base de datos utilizando la conexión existente
+            try:
+                self.delete_patient_from_db(patient_id)
+            except Exception as e:
+                print(f"Error al eliminar el paciente de la base de datos: {e}")
+                messagebox.showerror("Error", "No se pudo eliminar el paciente de la base de datos.")
+                return
+            
+            # Actualizar la vista
+            self.load_patients_to_delete()
+            
+            messagebox.showinfo("Éxito", "Paciente eliminado correctamente")
+
+    def delete_patient_from_db(self, patient_id):
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                query = "DELETE FROM Patient WHERE id_patient = %s"
+                cursor.execute(query, (patient_id,))
+                connection.commit()
+            connection.close()
+        except Exception as e:
+            print(f"Error al eliminar el paciente: {e}")
+            raise
 
     def create_update_patient_ui(self):
         self.updatepatient_screen = ctk.CTkFrame(self.main_frame, fg_color="#969696")
@@ -203,11 +320,11 @@ class PatientManager(ctk.CTkFrame):
         self.update_tree = ttk.Treeview(self.updatepatient_screen, columns=("ID", "Nombre"), show="headings")
         self.update_tree.heading("ID", text="ID")
         self.update_tree.heading("Nombre", text="Nombre")
-        self.update_tree.place(x=50, y=50, width=300, height=400)
+        self.update_tree.place(x=50, y=50, width=500, height=400)
         
         # Frame para los campos de edición
         self.update_fields_frame = ctk.CTkFrame(self.updatepatient_screen, width=400, height=400)
-        self.update_fields_frame.place(x=400, y=50)
+        self.update_fields_frame.place(x=600, y=50)
         
         # Campos de edición
         fields = [
@@ -257,7 +374,7 @@ class PatientManager(ctk.CTkFrame):
         selected = self.update_tree.selection()
         if not selected:
             return
-            
+        
         patient_id = self.update_tree.item(selected[0])["values"][0]
         patient = next(p for p in self.patients if p["id_patient"] == patient_id)
         
@@ -280,44 +397,92 @@ class PatientManager(ctk.CTkFrame):
         if not selected:
             messagebox.showwarning("Error", "Seleccione un paciente para editar")
             return
-            
+        
         patient_id = self.update_tree.item(selected[0])["values"][0]
         patient = next(p for p in self.patients if p["id_patient"] == patient_id)
         
-        # Actualizar datos
+        # Obtener los valores del formulario
         patient["name"] = self.update_entries["nombre completo"].get()
         patient["birth_date"] = self.update_entries["fecha nacimiento"].get()
         patient["gender"] = self.update_gender.get()
         patient["address"] = self.update_entries["dirección"].get()
         patient["phone"] = self.update_entries["teléfono"].get()
         
+        # Validación de datos
+        if not all([patient["name"], patient["birth_date"], patient["gender"], patient["address"], patient["phone"]]):
+            messagebox.showwarning("Error", "Todos los campos son obligatorios")
+            return
+        
+        # Actualizar la base de datos
+        try:
+            self.update_patient_in_db(patient_id, patient)
+        except Exception as e:
+            print(f"Error al actualizar la base de datos: {e}")
+            messagebox.showerror("Error", "No se pudo actualizar el paciente en la base de datos.")
+            return
+        
+        # Mostrar mensaje de éxito
         messagebox.showinfo("Éxito", "Paciente actualizado correctamente")
+        
+        # Recargar la vista de pacientes
         self.show_view_patients()
 
-    def create_view_patient_ui(self):
-        self.viewpatient_screen = ctk.CTkFrame(self.main_frame, fg_color="#ffffff")
+    def update_patient_in_db(self, patient_id, patient):
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
         
+                query = """
+                    UPDATE Patient 
+                    SET name = %s, birth_date = %s, gender = %s, address = %s, phone = %s
+                    WHERE id_patient = %s
+                """
+                cursor.execute(query, (
+                    patient["name"], 
+                    patient["birth_date"], 
+                    patient["gender"], 
+                    patient["address"], 
+                    patient["phone"], 
+                    patient_id
+                ))
+                connection.commit()
+            connection.close()
+        except Exception as e:
+            print(f"Error al actualizar el paciente: {e}")
+            raise
+
+    def create_view_patient_ui(self):
+        self.load_patients()
+          # Crear la pantalla de visualización de pacientes
+        self.viewpatient_screen = ctk.CTkFrame(self.main_frame, fg_color="#ffffff")
+
         # Treeview para mostrar pacientes
         columns = ("ID", "Nombre", "Género", "Teléfono", "Dirección")
         self.view_tree = ttk.Treeview(self.viewpatient_screen, columns=columns, show="headings")
-        
+
+        # Configurar las columnas del Treeview
         for col in columns:
             self.view_tree.heading(col, text=col)
             self.view_tree.column(col, width=150)
-        
+
+        # Colocar el Treeview en la interfaz
         self.view_tree.place(x=50, y=50, width=900, height=400)
-        
-        # Botón de actualizar lista
-        ctk.CTkButton(
-            self.viewpatient_screen,
-            text="Actualizar Lista",
-            command=self.load_patients_to_view
-        ).place(x=805, y=15)
+
+        # Llamar a la función que actualiza los pacientes de inmediato al crear la pantalla
+        self.load_patients_to_view()
 
     def load_patients_to_view(self):
+        # Eliminar las filas anteriores del Treeview
         for item in self.view_tree.get_children():
             self.view_tree.delete(item)
-            
+
+        # Insertar los nuevos datos de pacientes
         for patient in self.patients:
             self.view_tree.insert("", "end", values=(
                 patient["id_patient"],

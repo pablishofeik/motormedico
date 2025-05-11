@@ -2,11 +2,11 @@ import pymysql
 
 class ConectionDB:
     def __init__(self):
-        self.host = "localhost"  # Cambia si usas otro host
-        self.user = "root"       # Cambia al usuario de tu base de datos
-        self.password = ""       # Cambia a tu contraseña
-        self.database = "motormedico"  # Cambia al nombre de tu base de datos
-        self.port = 3306         # Cambia si tu base de datos usa otro puerto
+        self.host = "localhost"  
+        self.user = "root"       
+        self.password = "admin"      
+        self.database = "motormedico"  
+        self.port = 3306         
 
     def connect(self):
         try:

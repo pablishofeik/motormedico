@@ -30,18 +30,30 @@ class NewUser(ctk.CTkFrame):
         self.bottom_frame.pack(side="bottom", fill="x")
         self.create_bottom_buttons()
 
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                # Ajusta la consulta a tu tabla y campos
+                query = "SELECT * FROM Users"
+                cursor.execute(query)
+                resultados = cursor.fetchall()
+
+        except Exception as e:
+            print(f"Error durante la consulta: {e}")
+            Error(self, "Error al consultar la base de datos.")
+        finally:
+            connection.close()
+
         # Datos de ejemplo
-        self.users = [
-            {
-                "id_user": 1,
-                "name": "Admin",
-                "username": "admin",
-                "role": "Administrador",
-                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "password": "admin123"
-            }
-        ]
-        
+        self.users = []
+        self.load_user()
+
         # Configurar pantallas
         self.create_add_user_ui()
         self.create_edit_user_ui()
@@ -57,39 +69,13 @@ class NewUser(ctk.CTkFrame):
         self.viewuser_screen = ctk.CTkFrame(self.main_frame, fg_color="#969686")
 
     def create_crud_buttons(self):
-        icons = [
-            ("add.png", "Agregar Usuario", self.show_add_user),
-            ("delete.png", "Eliminar Usuario", self.show_delete_user),
-            ("update.png", "Editar Usuario", self.show_update_user),
-            ("view.png", "Ver Usuarios", self.show_view_users)
-        ]
-
-        x_pos = 20
-        for icon, tooltip, command in icons:
-            img = find_image(f"images/{icon}", 30)
-            btn = ctk.CTkButton(
-                self.top_frame,
-                text="",
-                image=img,
-                width=30,
-                height=30,
-                fg_color="#FFFFFF",
-                command=command
-            )
-            btn.place(x=x_pos, y=10)
-            x_pos += 45
+        ctk.CTkButton(self.top_frame, text="Agregar Usuario", width=80, command=self.show_add_user).pack(side="left", padx=5)
+        ctk.CTkButton(self.top_frame, text="Eliminar Usuario", width=80, command=self.show_delete_user).pack(side="left", padx=5)
+        ctk.CTkButton(self.top_frame, text="Editar Usuario", width=80, command=self.show_update_user).pack(side="left", padx=5)
+        ctk.CTkButton(self.top_frame, text="Ver Usuarios", width=80, command=self.show_view_users).pack(side="left", padx=5)
 
     def create_bottom_buttons(self):
-        return_img = find_image("images/return.png", 30)
-        ctk.CTkButton(
-            self.bottom_frame,
-            text="",
-            image=return_img,
-            width=30,
-            height=20,
-            fg_color="#FFFFFF",
-            command=self.return_menu
-        ).place(x=20, y=15)
+        ctk.CTkButton(self.bottom_frame, text="Regresar al menu", width=80, command=self.return_menu).pack(side="left", padx=5)
 
     def create_add_user_ui(self):
         fields = [
@@ -113,7 +99,7 @@ class NewUser(ctk.CTkFrame):
         # Combobox para roles
         self.role_combobox = ctk.CTkComboBox(
             self.adduser_screen,
-            values = ["admin", "medico", "patologo", "forense"],
+            values = ["Administrador", "Medico", "Patologo", "Forense"],
             width=300,
             height=40
         )
@@ -127,58 +113,102 @@ class NewUser(ctk.CTkFrame):
             hover_color="#45a049"
         ).place(x=400, y=370)
 
-    def save_user(self):
-        password = self.add_entries["contraseña"].get()
-        confirm_password = self.add_entries["confirmar contraseña"].get()
-        
-        if password != confirm_password:
-            messagebox.showerror("Error", "Las contraseñas no coinciden")
-            return
-            
-        user_data = {
-            "name": self.add_entries["nombre completo"].get(),
-            "username": self.add_entries["username"].get(),
-            "password": password,  # Deberías hashear aquí
-            "role": self.role_combobox.get(),
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
 
+    def load_user(self):
         db = ConectionDB()
         connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
 
         try:
             with connection.cursor() as cursor:
                 # Ajusta la consulta a tu tabla y campos
-                query = "SELECT * FROM Users WHERE username = %s AND password = %s"
-                cursor.execute(query, (user, password))
-                resultado = cursor.fetchone()
+                query = "SELECT * FROM Users"
+                cursor.execute(query)
+                resultados = cursor.fetchall()
 
-                if resultado:
-                    # Si el login es exitoso, oculta este frame y muestra el menú
-                    self.pack_forget()
-                    self.master.geometry("1024x600")  # Ajusta tamaño si es necesario
-                    self.master.children['!menuapp'].pack(fill="both", expand=True)
-                else:
-                    Error(self, "Usuario o contraseña incorrectos.")
         except Exception as e:
             print(f"Error durante la consulta: {e}")
             Error(self, "Error al consultar la base de datos.")
         finally:
             connection.close()
-        
+
+        # Datos de ejemplo
+        self.users = [
+            {
+                "id_user": row[0],
+                "name": row[1],
+                "username": row[2],
+                "role": row[3],
+                "created_at": row[4].strftime("%Y-%m-%d %H:%M:%S"),
+                "password": row[5]
+            }
+            for row in resultados
+        ]
+
+    def save_user(self):
+        password = self.add_entries["contraseña"].get()
+        confirm_password = self.add_entries["confirmar contraseña"].get()
+
+        if password != confirm_password:
+            messagebox.showerror("Error", "Las contraseñas no coinciden")
+            return
+
+        user_data = {
+            "name": self.add_entries["nombre completo"].get(),
+            "username": self.add_entries["username"].get(),
+            "password": password,
+            "role": self.role_combobox.get(),
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
         if not all(user_data.values()):
             messagebox.showerror("Error", "Todos los campos son obligatorios")
             return
-            
-        if any(u["username"] == user_data["username"] for u in self.users):
-            messagebox.showerror("Error", "El nombre de usuario ya existe")
+
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
             return
-            
-        user_data["id_user"] = max(u["id_user"] for u in self.users) + 1 if self.users else 1
-        self.users.append(user_data)
-        self.clear_add_fields()
-        messagebox.showinfo("Éxito", "Usuario creado correctamente")
-        self.show_view_users()
+
+        try:
+            with connection.cursor() as cursor:
+                # Verificar si el nombre de usuario ya existe
+                cursor.execute("SELECT 1 FROM Users WHERE username = %s", (user_data["username"],))
+                if cursor.fetchone():
+                    messagebox.showerror("Error", "El nombre de usuario ya existe")
+                    return
+
+                # Insertar nuevo usuario
+                insert_query = """
+                    INSERT INTO Users (name, username, password, role, created_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                """
+                cursor.execute(insert_query, (
+                    user_data["name"],
+                    user_data["username"],
+                    user_data["password"],
+                    user_data["role"],
+                    user_data["created_at"]
+                ))
+
+                connection.commit()  # Solo si estás usando InnoDB
+
+                self.clear_add_fields()
+                messagebox.showinfo("Éxito", "Usuario creado correctamente")
+                self.load_user()
+                self.show_view_users()
+
+        except Exception as e:
+            print(f"Error al insertar usuario: {e}")
+            Error(self, "Error al guardar el usuario.")
+        finally:
+            connection.close()
+        self.load_user()
 
     def clear_add_fields(self):
         for entry in self.add_entries.values():
@@ -206,7 +236,7 @@ class NewUser(ctk.CTkFrame):
 
         self.edit_role_combobox = ctk.CTkComboBox(
             self.updateuser_screen,
-            values=["admin", "medico", "patologo", "forense"],
+            values=["Administrador", "Medico", "Patologo", "Forense"],
             width=300,
             height=40
         )
@@ -221,43 +251,67 @@ class NewUser(ctk.CTkFrame):
         ).place(x=400, y=370)
 
     def update_user(self):
-        if not self.current_user:
-            messagebox.showerror("Error", "Seleccione un usuario primero")
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
             return
-            
+
         new_password = self.edit_entries["contraseña"].get()
         confirm_password = self.edit_entries["confirmar contraseña"].get()
-        
+
         if new_password and new_password != confirm_password:
             messagebox.showerror("Error", "Las contraseñas no coinciden")
             return
-            
+
         updated_data = {
             "name": self.edit_entries["nombre completo"].get(),
             "username": self.edit_entries["username"].get(),
             "role": self.edit_role_combobox.get()
         }
-        
+
         if new_password:
             updated_data["password"] = new_password
-            
+
         if not all([updated_data["name"], updated_data["username"], updated_data["role"]]):
             messagebox.showerror("Error", "Todos los campos son obligatorios")
             return
-            
-        if updated_data["username"] != self.current_user["username"]:
-            if any(u["username"] == updated_data["username"] for u in self.users):
-                messagebox.showerror("Error", "El nombre de usuario ya existe")
-                return
 
-        for user in self.users:
-            if user["id_user"] == self.current_user["id_user"]:
-                user.update(updated_data)
-                break
-                
-        self.clear_edit_fields()
-        messagebox.showinfo("Éxito", "Usuario actualizado correctamente")
-        self.show_view_users()
+        # Verificar si el username ya existe en la base de datos
+        try:
+            with connection.cursor() as cursor:
+                query = "SELECT COUNT(*) FROM Users WHERE username = %s AND id_user != %s"
+                cursor.execute(query, (updated_data["username"], self.current_user["id_user"]))
+                result = cursor.fetchone()
+                if result[0] > 0:
+                    messagebox.showerror("Error", "El nombre de usuario ya existe")
+                    return
+
+            # Construir la consulta UPDATE
+            campos = ["name = %s", "username = %s", "role = %s"]
+            valores = [updated_data["name"], updated_data["username"], updated_data["role"]]
+
+            if "password" in updated_data:
+                campos.append("password = %s")
+                valores.append(updated_data["password"])
+
+            valores.append(self.current_user["id_user"])
+
+            with connection.cursor() as cursor:
+                query = f"UPDATE Users SET {', '.join(campos)} WHERE id_user = %s"
+                cursor.execute(query, valores)
+                connection.commit()
+
+            self.clear_edit_fields()
+            messagebox.showinfo("Éxito", "Usuario actualizado correctamente")
+            self.show_view_users()
+
+        except Exception as e:
+            print(f"Error al actualizar el usuario: {e}")
+            messagebox.showerror("Error", "No se pudo actualizar el usuario.")
+        finally:
+            connection.close()
 
     def clear_edit_fields(self):
         for entry in self.edit_entries.values():
@@ -306,11 +360,34 @@ class NewUser(ctk.CTkFrame):
         if not selected_items:
             messagebox.showwarning("Advertencia", "Seleccione al menos un usuario")
             return
-            
+
         user_ids = [self.delete_tree.item(item)["values"][0] for item in selected_items]
-        self.users = [u for u in self.users if u["id_user"] not in user_ids]
-        self.update_delete_list()
-        messagebox.showinfo("Éxito", f"{len(user_ids)} usuarios eliminados")
+
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                # Usamos IN para eliminar múltiples usuarios
+                format_strings = ','.join(['%s'] * len(user_ids))
+                query = f"DELETE FROM Users WHERE id_user IN ({format_strings})"
+                cursor.execute(query, tuple(user_ids))
+            connection.commit()
+
+            # Recargar lista de usuarios después de eliminar
+            self.load_user()
+            self.update_delete_list()
+            messagebox.showinfo("Éxito", f"{len(user_ids)} usuarios eliminados")
+
+        except Exception as e:
+            print(f"Error al eliminar usuarios: {e}")
+            Error(self, "Error al eliminar usuarios de la base de datos.")
+        finally:
+            connection.close()
 
     def update_delete_list(self):
         self.delete_tree.delete(*self.delete_tree.get_children())
@@ -324,6 +401,7 @@ class NewUser(ctk.CTkFrame):
             ))
 
     def create_view_users_ui(self):
+        self.load_user()
         columns = ("ID", "Nombre", "Username", "Rol", "Fecha Creación")
         self.view_tree = ttk.Treeview(
             self.viewuser_screen,
