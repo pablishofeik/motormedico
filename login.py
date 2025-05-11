@@ -5,7 +5,8 @@ from conection import ConectionDB
 from menu import MenuApp
 
 class Login (ctk.CTkFrame):
-    def __init__(self, master, cambiar_a_menu):
+    def __init__(self, master, cambiar_a_menu, cambiar_a_signup):
+        self.cambiar_a_signup = cambiar_a_signup
         super().__init__(master)
         
         # Configuración de la ventana principal
@@ -42,8 +43,14 @@ class Login (ctk.CTkFrame):
 
         # Botón de ingreso
         login_button = ctk.CTkButton(login_frame, text="Ingresar", text_color= "#000000", width=200, height=40, corner_radius=10, fg_color="#FFFFFF", 
-                                     command=cambiar)
+                                     command=self.Btn_Login)
         login_button.pack(pady=(0, 0))
+
+        signup_switch = ctk.CTkButton(login_frame, text="¿No tienes cuenta? Regístrate", fg_color="transparent",
+                              text_color="#FFFFFF", hover=False, command=self.cambiar_a_signup)
+        signup_switch.pack(pady=(10, 5))
+
+
 
     def add_image(self, image_path, x, y):
         try:
@@ -59,32 +66,34 @@ class Login (ctk.CTkFrame):
 
     def Btn_Login(self):
         db = ConectionDB()
-        conection = db.connect()
+        connection = db.connect()
         user = self.username_entry.get()
         password = self.password_entry.get()
-        """
-        if conection is None:
-            Error(self, "No se pudo conectar a la Base de datos")
-            return 
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
         try:
-            with conection.cursor() as cursor:
-                # Consulta SQL para verificar usuario y contraseña
-                query = "SELECT * FROM Usuario WHERE contacto = %s AND contacto = %s"
+            with connection.cursor() as cursor:
+                # Ajusta la consulta a tu tabla y campos
+                query = "SELECT * FROM Users WHERE username = %s AND password = %s"
                 cursor.execute(query, (user, password))
                 resultado = cursor.fetchone()
 
                 if resultado:
-                    self.open_menu(conection)
+                    # Si el login es exitoso, oculta este frame y muestra el menú
+                    self.pack_forget()
+                    self.master.geometry("1024x600")  # Ajusta tamaño si es necesario
+                    self.master.children['!menuapp'].pack(fill="both", expand=True)
                 else:
                     Error(self, "Usuario o contraseña incorrectos.")
         except Exception as e:
             print(f"Error durante la consulta: {e}")
-            return False
+            Error(self, "Error al consultar la base de datos.")
         finally:
-            conection.close()
-            
-        """
-        self.open_menu()
+            connection.close()
+
 
 
     def open_menu(self):

@@ -2,6 +2,8 @@ import customtkinter as ctk
 from image_file import find_image
 from tkinter import ttk, messagebox
 from datetime import datetime  # Para manejar created_at
+from conection import ConectionDB
+from ErrorPopUp import Error
 
 class NewUser(ctk.CTkFrame):
     def __init__(self, master, return_menu):
@@ -111,7 +113,7 @@ class NewUser(ctk.CTkFrame):
         # Combobox para roles
         self.role_combobox = ctk.CTkComboBox(
             self.adduser_screen,
-            values=["Administrador", "Usuario", "Supervisor"],
+            values = ["admin", "medico", "patologo", "forense"],
             width=300,
             height=40
         )
@@ -140,6 +142,29 @@ class NewUser(ctk.CTkFrame):
             "role": self.role_combobox.get(),
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
+
+        db = ConectionDB()
+        connection = db.connect()
+
+        try:
+            with connection.cursor() as cursor:
+                # Ajusta la consulta a tu tabla y campos
+                query = "SELECT * FROM Users WHERE username = %s AND password = %s"
+                cursor.execute(query, (user, password))
+                resultado = cursor.fetchone()
+
+                if resultado:
+                    # Si el login es exitoso, oculta este frame y muestra el menú
+                    self.pack_forget()
+                    self.master.geometry("1024x600")  # Ajusta tamaño si es necesario
+                    self.master.children['!menuapp'].pack(fill="both", expand=True)
+                else:
+                    Error(self, "Usuario o contraseña incorrectos.")
+        except Exception as e:
+            print(f"Error durante la consulta: {e}")
+            Error(self, "Error al consultar la base de datos.")
+        finally:
+            connection.close()
         
         if not all(user_data.values()):
             messagebox.showerror("Error", "Todos los campos son obligatorios")
@@ -181,7 +206,7 @@ class NewUser(ctk.CTkFrame):
 
         self.edit_role_combobox = ctk.CTkComboBox(
             self.updateuser_screen,
-            values=["Administrador", "Usuario", "Supervisor"],
+            values=["admin", "medico", "patologo", "forense"],
             width=300,
             height=40
         )
