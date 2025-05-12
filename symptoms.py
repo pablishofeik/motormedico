@@ -1,5 +1,7 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
+from conection import ConectionDB
+from ErrorPopUp import Error
 
 class SymptomManager(ctk.CTkFrame):
     def __init__(self, master, return_menu):
@@ -17,6 +19,39 @@ class SymptomManager(ctk.CTkFrame):
         self.load_sample_data()
 
         self.show_main_screen()
+
+    def load_symptom(self):
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                query = "SELECT * FROM symptom"
+                cursor.execute(query)
+                resultados = cursor.fetchall()
+
+        except Exception as e:
+            print(f"Error durante la consulta de signos: {e}")
+            Error(self, "Error al consultar las signos.")
+            return  
+
+        finally:
+            connection.close()
+
+        self.symptoms = [
+            {
+                "id_symptom": row[0],
+                "symptom_name": row[1],
+                "description": row[2],
+                "intensity": row[3],       
+                "duration": row[4]    
+            }
+            for row in resultados
+        ]
 
     def create_main_interface(self):
         self.main_frame = ctk.CTkFrame(self, fg_color="#ffffff")
@@ -79,10 +114,7 @@ class SymptomManager(ctk.CTkFrame):
         self.entries["duration"].grid(row=3, column=1, pady=5)
 
     def load_sample_data(self):
-        self.symptoms = [
-            {"id": 1, "symptom_name": "Dolor de cabeza", "description": "Sensación de presión o molestia en la cabeza", "intensity": "Moderada", "duration": "2 horas"},
-            {"id": 2, "symptom_name": "Fiebre", "description": "Temperatura corporal elevada", "intensity": "Alta", "duration": "1 día"}
-        ]
+        self.load_symptom()
 
     def update_list(self):
         self.tree.delete(*self.tree.get_children())
@@ -91,7 +123,7 @@ class SymptomManager(ctk.CTkFrame):
         for symptom in self.symptoms:
             if search_term in symptom["symptom_name"].lower():
                 self.tree.insert("", "end", values=(
-                    symptom["id"],
+                    symptom["id_symptom"],
                     symptom["symptom_name"],
                     symptom["description"][:50] + "..." if len(symptom["description"]) > 50 else symptom["description"],
                     symptom["intensity"],
@@ -113,7 +145,7 @@ class SymptomManager(ctk.CTkFrame):
             return
 
         symptom_id = self.tree.item(selected[0])['values'][0]
-        self.current_symptom = next(s for s in self.symptoms if s['id'] == symptom_id)
+        self.current_symptom = next(s for s in self.symptoms if s['id_symptom'] == symptom_id)
 
         self.entries["symptom_name"].delete(0, 'end')
         self.entries["symptom_name"].insert(0, self.current_symptom["symptom_name"])
@@ -132,13 +164,35 @@ class SymptomManager(ctk.CTkFrame):
     def delete_symptom(self):
         selected = self.tree.selection()
         if not selected:
-            messagebox.showwarning("Error", "Seleccione un síntoma primero")
+            messagebox.showwarning("Error", "Seleccione un sintoma primero")
             return
 
-        if messagebox.askyesno("Confirmar", "¿Eliminar el síntoma seleccionado?"):
+        if messagebox.askyesno("Confirmar", "¿Eliminar el sintoma seleccionado?"):
             symptom_id = self.tree.item(selected[0])['values'][0]
-            self.symptoms = [s for s in self.symptoms if s['id'] != symptom_id]
+
+            db = ConectionDB()
+            connection = db.connect()
+
+            if connection is None:
+                Error(self, "No se pudo conectar a la base de datos")
+                return
+
+            try:
+                with connection.cursor() as cursor:
+                    query = "DELETE FROM symptom WHERE id_symptom = %s"
+                    cursor.execute(query, (symptom_id,))
+                    connection.commit()
+
+            except Exception as e:
+                print(f"Error al eliminar el sintoma: {e}")
+                Error(self, "Ocurrió un error al eliminar el sintoma.")
+            finally:
+                connection.close()
+
+            # También eliminar de la lista local
+            self.symptoms = [s for s in self.symptoms if s['id_symptom'] != symptom_id]
             self.update_list()
+            messagebox.showinfo("Éxito", "Sintoma eliminado correctamente")
 
     def save_symptom(self):
         name = self.entries["symptom_name"].get().strip()
@@ -153,18 +207,62 @@ class SymptomManager(ctk.CTkFrame):
             "duration": self.entries["duration"].get().strip()
         }
 
-        if self.current_symptom:
-            self.current_symptom.update(data)
-        else:
-            new_id = max((s["id"] for s in self.symptoms), default=0) + 1
-            data["id"] = new_id
-            self.symptoms.append(data)
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                if self.current_symptom:
+                    # Actualizar síntoma existente
+                    query = """
+                        UPDATE Symptom SET
+                            symptom_name = %s,
+                            description = %s,
+                            intensity = %s,
+                            duration = %s
+                        WHERE id_symptom = %s
+                    """
+                    cursor.execute(query, (
+                        data["symptom_name"],
+                        data["description"],
+                        data["intensity"],
+                        data["duration"],
+                        self.current_symptom["id_symptom"]
+                    ))
+                else:
+                    # Insertar nuevo síntoma
+                    query = """
+                        INSERT INTO Symptom (symptom_name, description, intensity, duration)
+                        VALUES (%s, %s, %s, %s)
+                    """
+                    cursor.execute(query, (
+                        data["symptom_name"],
+                        data["description"],
+                        data["intensity"],
+                        data["duration"]
+                    ))
+
+                connection.commit()
+
+        except Exception as e:
+            print(f"Error al guardar síntoma: {e}")
+            Error(self, "Error al guardar el síntoma.")
+            return
+
+        finally:
+            connection.close()
 
         self.show_main_screen()
+        messagebox.showinfo("Éxito", "Síntoma guardado correctamente")
 
     def show_main_screen(self):
         self.edit_frame.pack_forget()
         self.main_frame.pack(fill="both", expand=True)
+        self.load_symptom()
         self.update_list()
 
     def show_edit_screen(self):

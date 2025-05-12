@@ -227,9 +227,10 @@ class MenuApp(ctk.CTkFrame):
             self.main_frame.pack_forget()
             self.newUser.pack(fill="both", expand=True)
         elif option == "Cambiar de usuario":
+            
             self.destroy()  # Cierra la ventana actual
-            self.on_logout()
-        elif option == "Cerrar":
+            
+        elif option == "Cerrar sesión":
             self.master.destroy()
         self.toggle_dropdown()
 

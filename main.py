@@ -1,7 +1,4 @@
 import customtkinter as ctk
-from PIL import Image, ImageTk, ImageFilter
-from ErrorPopUp import Error
-from conection import ConectionDB
 from menu import MenuApp
 from login import Login
 from menu import MenuApp

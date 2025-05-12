@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
-from datetime import datetime
+from conection import ConectionDB
+from ErrorPopUp import Error
 
 class DiseaseManager(ctk.CTkFrame):
     def __init__(self, master, return_menu):
@@ -21,6 +22,7 @@ class DiseaseManager(ctk.CTkFrame):
         self.create_main_interface()
         self.create_edit_interface()
         self.load_sample_data()
+        self.load_diseases()
         
         # Mostrar pantalla principal
         self.show_main_screen()
@@ -53,9 +55,43 @@ class DiseaseManager(ctk.CTkFrame):
         self.tree.column("Descripción", width=400)
         self.tree.bind("<Double-1>", lambda e: self.edit_disease())
         self.tree.pack(fill="both", expand=True, padx=10, pady=5)
+        self.load_diseases()
         
         # Botón de regreso
         ctk.CTkButton(self.main_frame, text="Regresar al Menú", command=self.return_menu).pack(pady=10)
+    
+    def load_diseases(self):
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                query = "SELECT id_disease, name, description FROM Disease"
+                cursor.execute(query)
+                resultados = cursor.fetchall()
+
+        except Exception as e:
+            print(f"Error durante la consulta de enfermedades: {e}")
+            Error(self, "Error al consultar las enfermedades.")
+            return  # importante para evitar usar 'resultados' si falla
+
+        finally:
+            connection.close()
+
+        self.diseases = [
+            {
+                "id_disease": row[0],
+                "name": row[1],
+                "description": row[2],
+                "signs": [],       # Si luego deseas cargarlos, podrías añadir otro método
+                "symptoms": []     # Lo mismo aplica aquí
+            }
+            for row in resultados
+        ]
 
     def create_edit_interface(self):
         # Frame de edición
@@ -66,6 +102,7 @@ class DiseaseManager(ctk.CTkFrame):
         header.pack(fill="x", pady=5, padx=10)
         ctk.CTkButton(header, text="Guardar", width=80, command=self.save_disease).pack(side="left", padx=5)
         ctk.CTkButton(header, text="Cancelar", width=80, command=self.show_main_screen).pack(side="left", padx=5)
+        self.load_diseases()
         
         # Formulario
         form_frame = ctk.CTkFrame(self.edit_frame, fg_color="#ffffff")
@@ -104,12 +141,7 @@ class DiseaseManager(ctk.CTkFrame):
 
     def load_sample_data(self):
         # Datos de ejemplo
-        self.diseases = [
-            {'id': 1, 'name': 'Diabetes', 'description': 'Enfermedad metabólica', 
-             'symptoms': [1], 'signs': [1]},
-            {'id': 2, 'name': 'Hipertensión', 'description': 'Presión arterial alta',
-             'symptoms': [2], 'signs': [2]}
-        ]
+        self.load_diseases()
         self.all_symptoms = [
             {'id': 1, 'name': 'Sed excesiva'},
             {'id': 2, 'name': 'Dolor de cabeza'}
@@ -129,13 +161,20 @@ class DiseaseManager(ctk.CTkFrame):
         self.edit_frame.pack(fill="both", expand=True)
 
     def update_list(self):
-        self.tree.delete(*self.tree.get_children())
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+    
+        # Cargar datos frescos desde la base de datos
+        self.load_diseases()  # <-- Asegurar datos actualizados
+        
+        # Filtrar según búsqueda
         search_term = self.search_var.get().lower()
         
+        # Insertar registros
         for disease in self.diseases:
             if search_term in disease['name'].lower():
                 self.tree.insert("", "end", values=(
-                    disease['id'],
+                    disease['id_disease'],
                     disease['name'],
                     disease['description'][:50] + "..." if len(disease['description']) > 50 else disease['description']
                 ))
@@ -144,6 +183,7 @@ class DiseaseManager(ctk.CTkFrame):
         self.current_disease = None
         self.name_entry.delete(0, 'end')
         self.desc_entry.delete('1.0', 'end')
+        self.load_diseases()
         self.update_associations()
         self.show_edit_screen()
 
@@ -154,7 +194,8 @@ class DiseaseManager(ctk.CTkFrame):
             return
             
         disease_id = self.tree.item(selected[0])['values'][0]
-        self.current_disease = next(d for d in self.diseases if d['id'] == disease_id)
+        self.current_disease = next(d for d in self.diseases if d['id_disease'] == disease_id)
+        self.load_diseases()
         self.load_disease_data()
         self.show_edit_screen()
 
@@ -255,34 +296,65 @@ class DiseaseManager(ctk.CTkFrame):
 
     def save_disease(self):
         name = self.name_entry.get().strip()
+        description = self.desc_entry.get("1.0", "end-1c").strip()
+
         if not name:
             messagebox.showerror("Error", "El nombre es obligatorio")
             return
-        
-        if self.current_disease:
-            # Actualizar existente
-            self.current_disease['name'] = name
-            self.current_disease['description'] = self.desc_entry.get('1.0', 'end-1c')
-        else:
-            # Crear nuevo
-            new_id = max(d['id'] for d in self.diseases) + 1 if self.diseases else 1
-            self.diseases.append({
-                'id': new_id,
-                'name': name,
-                'description': self.desc_entry.get('1.0', 'end-1c'),
-                'symptoms': [],
-                'signs': []
-            })
-        
-        self.show_main_screen()
+
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                if self.current_disease:
+                    # Actualizar enfermedad existente
+                    query = "UPDATE Disease SET name=%s, description=%s WHERE id_disease=%s"
+                    cursor.execute(query, (name, description, self.current_disease['id_disease']))
+                else:
+                    # Insertar nueva enfermedad
+                    query = "INSERT INTO Disease (name, description) VALUES (%s, %s)"
+                    cursor.execute(query, (name, description))
+            connection.commit()
+            messagebox.showinfo("Éxito", "Enfermedad guardada correctamente")
+            self.show_main_screen()
+
+        except Exception as e:
+            print(f"Error al guardar enfermedad: {e}")
+            Error(self, "No se pudo guardar la enfermedad.")
+        finally:
+            connection.close()
+
 
     def delete_disease(self):
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Error", "Seleccione una enfermedad primero")
             return
-            
+        
+        disease_id = self.tree.item(selected[0])['values'][0]
+        
         if messagebox.askyesno("Confirmar", "¿Eliminar la enfermedad seleccionada?"):
-            disease_id = self.tree.item(selected[0])['values'][0]
-            self.diseases = [d for d in self.diseases if d['id'] != disease_id]
-            self.update_list()
+            db = ConectionDB()
+            connection = db.connect()
+            
+            try:
+                with connection.cursor() as cursor:
+                    # Eliminar asociaciones primero (si existen)
+                    cursor.execute("DELETE FROM Disease_Symptom WHERE id_disease = %s", (disease_id,))
+                    cursor.execute("DELETE FROM Disease_Sign WHERE id_disease = %s", (disease_id,))
+                    # Eliminar enfermedad
+                    cursor.execute("DELETE FROM Disease WHERE id_disease = %s", (disease_id,))
+                connection.commit()
+                self.update_list()  # Actualización directa
+                messagebox.showinfo("Éxito", "Enfermedad eliminada")
+                
+            except Exception as e:
+                print(f"Error al eliminar: {e}")
+                Error(self, "No se pudo eliminar. ¿Tiene asociaciones?")
+            finally:
+                connection.close()
