@@ -149,25 +149,31 @@ class NewUser(ctk.CTkFrame):
         ]
 
     def save_user(self):
+        # Obtener valores
+        full_name = self.add_entries["nombre completo"].get().strip()
+        username = self.add_entries["username"].get().strip()
         password = self.add_entries["contraseña"].get()
         confirm_password = self.add_entries["confirmar contraseña"].get()
+        role = self.role_combobox.get()
 
+        # Validar campos
+        if error := self.validate_full_name(full_name):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_username(username):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_password(password):
+            messagebox.showerror("Error", error)
+            return
         if password != confirm_password:
             messagebox.showerror("Error", "Las contraseñas no coinciden")
             return
-
-        user_data = {
-            "name": self.add_entries["nombre completo"].get(),
-            "username": self.add_entries["username"].get(),
-            "password": password,
-            "role": self.role_combobox.get(),
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-
-        if not all(user_data.values()):
-            messagebox.showerror("Error", "Todos los campos son obligatorios")
+        if error := self.validate_role(role):
+            messagebox.showerror("Error", error)
             return
 
+        # Conexión a la base de datos
         db = ConectionDB()
         connection = db.connect()
 
@@ -177,8 +183,8 @@ class NewUser(ctk.CTkFrame):
 
         try:
             with connection.cursor() as cursor:
-                # Verificar si el nombre de usuario ya existe
-                cursor.execute("SELECT 1 FROM Users WHERE username = %s", (user_data["username"],))
+                # Verificar si el username existe
+                cursor.execute("SELECT 1 FROM Users WHERE username = %s", (username,))
                 if cursor.fetchone():
                     messagebox.showerror("Error", "El nombre de usuario ya existe")
                     return
@@ -189,15 +195,16 @@ class NewUser(ctk.CTkFrame):
                     VALUES (%s, %s, %s, %s, %s)
                 """
                 cursor.execute(insert_query, (
-                    user_data["name"],
-                    user_data["username"],
-                    user_data["password"],
-                    user_data["role"],
-                    user_data["created_at"]
+                    full_name,
+                    username,
+                    password,  # Sin hashear (según requisito)
+                    role,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 ))
 
-                connection.commit()  # Solo si estás usando InnoDB
+                connection.commit()
 
+                # Limpiar y actualizar interfaz
                 self.clear_add_fields()
                 messagebox.showinfo("Éxito", "Usuario creado correctamente")
                 self.load_user()
@@ -205,9 +212,10 @@ class NewUser(ctk.CTkFrame):
 
         except Exception as e:
             print(f"Error al insertar usuario: {e}")
-            Error(self, "Error al guardar el usuario.")
+            Error(self, f"Error al guardar el usuario: {str(e)}")
         finally:
             connection.close()
+        self.clear_add_fields()
         self.load_user()
 
     def clear_add_fields(self):
@@ -251,6 +259,34 @@ class NewUser(ctk.CTkFrame):
         ).place(x=400, y=370)
 
     def update_user(self):
+        # Obtener valores
+        full_name = self.edit_entries["nombre completo"].get().strip()
+        username = self.edit_entries["username"].get().strip()
+        new_password = self.edit_entries["contraseña"].get()
+        confirm_password = self.edit_entries["confirmar contraseña"].get()
+        role = self.edit_role_combobox.get()
+
+        # Validar campos básicos
+        if error := self.validate_full_name(full_name):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_username(username):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_role(role):
+            messagebox.showerror("Error", error)
+            return
+
+        # Validar contraseña (solo si se quiere cambiar)
+        if new_password:
+            if error := self.validate_password(new_password):
+                messagebox.showerror("Error", error)
+                return
+            if new_password != confirm_password:
+                messagebox.showerror("Error", "Las contraseñas no coinciden")
+                return
+
+        # Conexión a la base de datos
         db = ConectionDB()
         connection = db.connect()
 
@@ -258,58 +294,41 @@ class NewUser(ctk.CTkFrame):
             Error(self, "No se pudo conectar a la base de datos")
             return
 
-        new_password = self.edit_entries["contraseña"].get()
-        confirm_password = self.edit_entries["confirmar contraseña"].get()
-
-        if new_password and new_password != confirm_password:
-            messagebox.showerror("Error", "Las contraseñas no coinciden")
-            return
-
-        updated_data = {
-            "name": self.edit_entries["nombre completo"].get(),
-            "username": self.edit_entries["username"].get(),
-            "role": self.edit_role_combobox.get()
-        }
-
-        if new_password:
-            updated_data["password"] = new_password
-
-        if not all([updated_data["name"], updated_data["username"], updated_data["role"]]):
-            messagebox.showerror("Error", "Todos los campos son obligatorios")
-            return
-
-        # Verificar si el username ya existe en la base de datos
         try:
             with connection.cursor() as cursor:
-                query = "SELECT COUNT(*) FROM Users WHERE username = %s AND id_user != %s"
-                cursor.execute(query, (updated_data["username"], self.current_user["id_user"]))
-                result = cursor.fetchone()
-                if result[0] > 0:
+                # Verificar unicidad del username (excluyendo al usuario actual)
+                cursor.execute(
+                    "SELECT COUNT(*) FROM Users WHERE username = %s AND id_user != %s",
+                    (username, self.current_user["id_user"])
+                )
+                if cursor.fetchone()[0] > 0:
                     messagebox.showerror("Error", "El nombre de usuario ya existe")
                     return
 
-            # Construir la consulta UPDATE
-            campos = ["name = %s", "username = %s", "role = %s"]
-            valores = [updated_data["name"], updated_data["username"], updated_data["role"]]
+                # Construir la consulta UPDATE dinámica
+                update_fields = ["name = %s", "username = %s", "role = %s"]
+                values = [full_name, username, role]
 
-            if "password" in updated_data:
-                campos.append("password = %s")
-                valores.append(updated_data["password"])
+                if new_password:
+                    update_fields.append("password = %s")
+                    values.append(new_password)
 
-            valores.append(self.current_user["id_user"])
+                values.append(self.current_user["id_user"])  # ID para el WHERE
 
-            with connection.cursor() as cursor:
-                query = f"UPDATE Users SET {', '.join(campos)} WHERE id_user = %s"
-                cursor.execute(query, valores)
+                # Ejecutar actualización
+                update_query = f"UPDATE Users SET {', '.join(update_fields)} WHERE id_user = %s"
+                cursor.execute(update_query, values)
                 connection.commit()
 
-            self.clear_edit_fields()
-            messagebox.showinfo("Éxito", "Usuario actualizado correctamente")
-            self.show_view_users()
+                # Limpiar y actualizar interfaz
+                self.clear_edit_fields()
+                messagebox.showinfo("Éxito", "Usuario actualizado correctamente")
+                self.load_user()  # Recargar datos actualizados
+                self.show_view_users()
 
         except Exception as e:
-            print(f"Error al actualizar el usuario: {e}")
-            messagebox.showerror("Error", "No se pudo actualizar el usuario.")
+            print(f"Error al actualizar usuario: {e}")
+            Error(self, f"Error al actualizar el usuario: {str(e)}")
         finally:
             connection.close()
 
@@ -475,3 +494,41 @@ class NewUser(ctk.CTkFrame):
                query in u["role"].lower()
         ]
         self.update_delete_list(filtered)
+
+    def validate_full_name(self, name):
+        if not name.strip():
+            return "El nombre no puede estar vacío"
+        if len(name) > 100:
+            return "El nombre no puede exceder 100 caracteres"
+        if not all(c.isalpha() or c.isspace() for c in name):
+            return "Solo se permiten letras y espacios"
+        if len(name.split()) < 2:
+            return "Debe ingresar al menos nombre y apellido"
+        return None
+    
+    def validate_username(self, username):
+        if not username.strip():
+            return "El username no puede estar vacío"
+        if len(username) < 4:
+            return "El username debe tener al menos 4 caracteres"
+        if len(username) > 50:
+            return "El username no puede exceder 50 caracteres"
+        if not username.isalnum():
+            return "Solo se permiten caracteres alfanuméricos (a-z, 0-9)"
+        return None
+    
+    def validate_password(self, password):
+        if len(password) < 6:
+            return "La contraseña debe tener al menos 6 caracteres"
+        if not any(c.isupper() for c in password):
+            return "La contraseña debe contener al menos una mayúscula"
+        if not any(c.isdigit() for c in password):
+            return "La contraseña debe contener al menos un número"
+        return None
+    
+    def validate_role(self, role):
+        valid_roles = ["Administrador", "Medico", "Patologo", "Forense"]
+        if role not in valid_roles:
+            return "Rol no válido"
+        return None
+       
