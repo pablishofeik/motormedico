@@ -1,5 +1,7 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
+from conection import ConectionDB
+from ErrorPopUp import Error
 
 class TestManager(ctk.CTkFrame):
     def __init__(self, master, return_menu):
@@ -7,10 +9,7 @@ class TestManager(ctk.CTkFrame):
         self.return_menu = return_menu
         
         # Datos de ejemplo
-        self.patients = [
-            {"id": 1, "name": "Juan Pérez"},
-            {"id": 2, "name": "Ana Martínez"}
-        ]
+        self.patients = []
         
         # Pruebas asociadas a pacientes {patient_id: {lab: [], postmortem: []}}
         self.tests = {
@@ -21,6 +20,8 @@ class TestManager(ctk.CTkFrame):
                 "postmortem": []
             }
         }
+
+        self.load_patients()
         
         self.current_patient = None
         self.current_test = None
@@ -30,8 +31,43 @@ class TestManager(ctk.CTkFrame):
         self.create_main_interface()
         self.create_edit_interface()
         
+        
         self.show_patient_selection_screen()
 
+    def load_patients(self):
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                # Ajusta la consulta a tu tabla y campos
+                query = "SELECT * FROM Patient"
+                cursor.execute(query)
+                resultados = cursor.fetchall()
+
+        except Exception as e:
+            print(f"Error durante la consulta: {e}")
+            Error(self, "Error al consultar la base de datos.")
+        finally:
+            connection.close()
+
+        # Datos de ejemplo
+        self.patients = [
+            {
+                "id_patient": row[0],
+                "name": row[1],
+                "birth_date": row[2].strftime("%Y-%m-%d %H:%M:%S"),
+                "gender": row[3],
+                "address": row[4],
+                "phone": row[5]
+            }
+            for row in resultados
+        ]
+    
     def create_patient_selector(self):
         # Frame para selección de paciente
         self.patient_frame = ctk.CTkFrame(self, fg_color="#ffffff")
@@ -61,10 +97,10 @@ class TestManager(ctk.CTkFrame):
             widget.destroy()
             
         for patient in self.patients:
-            if query in str(patient["id"]) or query in patient["name"].lower():
+            if query in str(patient["id_patient"]) or query in patient["name"].lower():
                 btn = ctk.CTkButton(
                     self.patient_list,
-                    text=f"{patient['id']} - {patient['name']}",
+                    text=f"{patient['id_patient']} - {patient['name']}",
                     command=lambda p=patient: self.select_patient(p)
                 )
                 btn.pack(pady=2, fill="x")
