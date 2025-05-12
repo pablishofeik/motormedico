@@ -182,29 +182,38 @@ class PatientManager(ctk.CTkFrame):
         ).place(x=800, y=20)
 
     def save_patient(self):
+        # Obtener valores
+        full_name = self.add_entries["nombre completo"].get().strip()
+        birth_date = self.add_entries["fecha nacimiento (aaaa-mm-dd)"].get().strip()
+        gender = self.gender_combobox.get()
+        address = self.add_entries["dirección"].get().strip()
+        phone = self.add_entries["teléfono"].get().strip()
+
+        # Validar campos
+        if error := self.validate_full_name(full_name):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_birth_date(birth_date):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_gender(gender):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_address(address):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_phone(phone):
+            messagebox.showerror("Error", error)
+            return
+
+        # Resto del código de save_patient...
         db = ConectionDB()
         connection = db.connect()
-        patient_data = {
-            "name": self.add_entries["nombre completo"].get(),
-            "birth_date": self.add_entries["fecha nacimiento (aaaa-mm-dd)"].get(),
-            "gender": self.gender_combobox.get(),
-            "address": self.add_entries["dirección"].get(),
-            "phone": self.add_entries["teléfono"].get()
-        }
 
-        # Validación básica
-        if not all(patient_data.values()):
-            messagebox.showerror("Error", "Todos los campos son obligatorios")
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
             return
 
-        # Convertir la fecha de nacimiento a datetime
-        try:
-            birth_date = datetime.strptime(patient_data["birth_date"], "%Y-%m-%d")  # Ajusta el formato según el input
-        except ValueError:
-            messagebox.showerror("Error", "El formato de la fecha de nacimiento es incorrecto. Debe ser YYYY-MM-DD")
-            return
-
-        # Ahora podemos insertar la fecha convertida en la base de datos
         try:
             with connection.cursor() as cursor:
                 query = """
@@ -212,11 +221,11 @@ class PatientManager(ctk.CTkFrame):
                 VALUES (%s, %s, %s, %s, %s)
                 """
                 cursor.execute(query, (
-                    patient_data["name"],
-                    birth_date,  # Fecha convertida a datetime
-                    patient_data["gender"],
-                    patient_data["address"],
-                    patient_data["phone"]
+                    full_name,
+                    datetime.strptime(birth_date, "%Y-%m-%d"),
+                    gender,
+                    address,
+                    phone
                 ))
                 connection.commit()
             messagebox.showinfo("Éxito", "Paciente guardado correctamente")
@@ -224,7 +233,7 @@ class PatientManager(ctk.CTkFrame):
 
         except Exception as e:
             print(f"Error al insertar paciente: {e}")
-            messagebox.showerror("Error", "No se pudo guardar el paciente")
+            messagebox.showerror("Error", f"No se pudo guardar el paciente: {str(e)}")
         finally:
             connection.close()
         self.load_patients()
@@ -399,33 +408,45 @@ class PatientManager(ctk.CTkFrame):
             return
         
         patient_id = self.update_tree.item(selected[0])["values"][0]
-        patient = next(p for p in self.patients if p["id_patient"] == patient_id)
         
-        # Obtener los valores del formulario
-        patient["name"] = self.update_entries["nombre completo"].get()
-        patient["birth_date"] = self.update_entries["fecha nacimiento"].get()
-        patient["gender"] = self.update_gender.get()
-        patient["address"] = self.update_entries["dirección"].get()
-        patient["phone"] = self.update_entries["teléfono"].get()
-        
-        # Validación de datos
-        if not all([patient["name"], patient["birth_date"], patient["gender"], patient["address"], patient["phone"]]):
-            messagebox.showwarning("Error", "Todos los campos son obligatorios")
+        # Obtener valores
+        full_name = self.update_entries["nombre completo"].get().strip()
+        birth_date = self.update_entries["fecha nacimiento"].get().strip()
+        gender = self.update_gender.get()
+        address = self.update_entries["dirección"].get().strip()
+        phone = self.update_entries["teléfono"].get().strip()
+
+        # Validar campos
+        if error := self.validate_full_name(full_name):
+            messagebox.showerror("Error", error)
             return
-        
-        # Actualizar la base de datos
+        if error := self.validate_birth_date(birth_date):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_gender(gender):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_address(address):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_phone(phone):
+            messagebox.showerror("Error", error)
+            return
+
+        # Resto del código de update_patient_data...
         try:
-            self.update_patient_in_db(patient_id, patient)
+            self.update_patient_in_db(patient_id, {
+                "name": full_name,
+                "birth_date": birth_date,
+                "gender": gender,
+                "address": address,
+                "phone": phone
+            })
+            messagebox.showinfo("Éxito", "Paciente actualizado correctamente")
+            self.show_view_patients()
         except Exception as e:
-            print(f"Error al actualizar la base de datos: {e}")
-            messagebox.showerror("Error", "No se pudo actualizar el paciente en la base de datos.")
-            return
-        
-        # Mostrar mensaje de éxito
-        messagebox.showinfo("Éxito", "Paciente actualizado correctamente")
-        
-        # Recargar la vista de pacientes
-        self.show_view_patients()
+            print(f"Error al actualizar paciente: {e}")
+            messagebox.showerror("Error", f"No se pudo actualizar el paciente: {str(e)}")
 
     def update_patient_in_db(self, patient_id, patient):
         db = ConectionDB()
@@ -549,7 +570,6 @@ class PatientManager(ctk.CTkFrame):
             return
             
         consultation_data = {
-            "id_consultation": len(self.consultations) + 1,
             "patient_id": self.current_patient["id_patient"],
             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "signs": [],
@@ -560,11 +580,11 @@ class PatientManager(ctk.CTkFrame):
         for frame in self.signs_container.winfo_children():
             if isinstance(frame, ctk.CTkFrame):
                 children = frame.winfo_children()
+                sign_name = children[0].get()
                 sign_data = {
-                    "id_sign": next(s["id"] for s in self.signs if s["name"] == children[0].get()),
+                    "name": sign_name,
                     "value": children[1].get(),
                     "severity": children[2].get(),
-                    "date_recorded": consultation_data["date"]
                 }
                 consultation_data["signs"].append(sign_data)
         
@@ -572,17 +592,65 @@ class PatientManager(ctk.CTkFrame):
         for frame in self.symptoms_container.winfo_children():
             if isinstance(frame, ctk.CTkFrame):
                 children = frame.winfo_children()
+                symptom_name = children[0].get()
                 symptom_data = {
-                    "id_symptom": next(s["id"] for s in self.symptoms if s["name"] == children[0].get()),
+                    "name": symptom_name,
                     "intensity": children[1].get(),
                     "duration": children[2].get(),
-                    "date_recorded": consultation_data["date"]
                 }
                 consultation_data["symptoms"].append(symptom_data)
         
-        self.consultations.append(consultation_data)
-        messagebox.showinfo("Éxito", "Consulta guardada correctamente")
-        self.show_view_patients()
+        # Validar consulta
+        if error := self.validate_consultation_data(consultation_data):
+            messagebox.showerror("Error", error)
+            return
+        
+        # Guardar en base de datos
+        try:
+            db = ConectionDB()
+            connection = db.connect()
+            
+            with connection.cursor() as cursor:
+                # Insertar consulta
+                cursor.execute(
+                    "INSERT INTO Consultation (patient_id, date) VALUES (%s, %s)",
+                    (consultation_data["patient_id"], consultation_data["date"])
+                )
+                consultation_id = cursor.lastrowid
+                
+                # Insertar signos
+                for sign in consultation_data["signs"]:
+                    cursor.execute(
+                        """INSERT INTO ClinicalSigns (consultation_id, sign_id, value, severity)
+                        VALUES (%s, %s, %s, %s)""",
+                        (consultation_id, 
+                         next(s["id"] for s in self.signs if s["name"] == sign["name"]),
+                         sign["value"],
+                         sign["severity"])
+                    )
+                
+                # Insertar síntomas
+                for symptom in consultation_data["symptoms"]:
+                    cursor.execute(
+                        """INSERT INTO Symptoms (consultation_id, symptom_id, intensity, duration)
+                        VALUES (%s, %s, %s, %s)""",
+                        (consultation_id,
+                         next(s["id"] for s in self.symptoms if s["name"] == symptom["name"]),
+                         symptom["intensity"],
+                         symptom["duration"])
+                    )
+                
+                connection.commit()
+            
+            messagebox.showinfo("Éxito", "Consulta guardada correctamente")
+            self.show_view_patients()
+            
+        except Exception as e:
+            print(f"Error al guardar consulta: {e}")
+            messagebox.showerror("Error", f"No se pudo guardar la consulta: {str(e)}")
+        finally:
+            if 'connection' in locals():
+                connection.close()
 
     def load_sample_data(self):
         self.patients = [{
@@ -602,3 +670,68 @@ class PatientManager(ctk.CTkFrame):
             text="Regresar al Menú",
             command=self.return_menu,
             ).pack(side="top", padx=5)
+        
+    def validate_full_name(self, name):
+        if not name.strip():
+            return "El nombre completo no puede estar vacío"
+        if len(name) > 100:
+            return "El nombre no puede exceder 100 caracteres"
+        if not all(c.isalpha() or c.isspace() or c in "áéíóúñÁÉÍÓÚÑ" for c in name):
+            return "Solo se permiten letras y espacios"
+        if len(name.split()) < 2:
+            return "Debe ingresar al menos nombre y apellido"
+        return None
+
+    def validate_birth_date(self, date_str):
+        try:
+            birth_date = datetime.strptime(date_str, "%Y-%m-%d")
+            if birth_date > datetime.now():
+                return "La fecha de nacimiento no puede ser futura"
+            # Verificar edad mínima (ej. 0 años) y máxima (ej. 120 años)
+            age = datetime.now().year - birth_date.year
+            if age < 0 or age > 120:
+                return "Edad no válida"
+            return None
+        except ValueError:
+            return "Formato de fecha inválido (AAAA-MM-DD)"
+
+    def validate_gender(self, gender):
+        valid_genders = ["Masculino", "Femenino", "Otro"]
+        if gender not in valid_genders:
+            return "Género no válido"
+        return None
+
+    def validate_address(self, address):
+        if not address.strip():
+            return "La dirección no puede estar vacía"
+        if len(address) > 200:
+            return "La dirección no puede exceder 200 caracteres"
+        return None
+
+    def validate_phone(self, phone):
+        if not phone.strip():
+            return "El teléfono no puede estar vacío"
+        # Validar formato básico (ajustar según requisitos)
+        if len(phone) < 7 or len(phone) > 15:
+            return "El teléfono debe tener entre 7 y 15 dígitos"
+        if not phone.replace("+", "").replace("-", "").replace(" ", "").isdigit():
+            return "El teléfono solo puede contener números y caracteres especiales (+ -)"
+        return None
+    
+    def validate_consultation_data(self, consultation_data):
+        if not consultation_data["signs"]:
+            return "Debe registrar al menos un signo clínico"
+        if not consultation_data["symptoms"]:
+            return "Debe registrar al menos un síntoma"
+        
+        # Validar cada signo
+        for sign in consultation_data["signs"]:
+            if not sign["value"]:
+                return f"Valor faltante para {sign['name']}"
+            try:
+                float(sign["value"])  # Validar que sea numérico para signos vitales
+            except ValueError:
+                return f"Valor inválido para {sign['name']} (debe ser numérico)"
+        
+        return None
+    

@@ -4,7 +4,7 @@ class ConectionDB:
     def __init__(self):
         self.host = "localhost"  
         self.user = "root"       
-        self.password = "admin"      
+        self.password = ""      
         self.database = "motormedico"  
         self.port = 3306         
 
