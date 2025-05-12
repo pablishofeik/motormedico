@@ -1,5 +1,7 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
+from conection import ConectionDB
+from ErrorPopUp import Error
 
 class SignManager(ctk.CTkFrame):
     def __init__(self, master, return_menu):
@@ -71,17 +73,52 @@ class SignManager(ctk.CTkFrame):
         self.entries["description"] = ctk.CTkTextbox(form, width=400, height=100)
         self.entries["description"].grid(row=1, column=1, pady=5)
 
-        self.entries["severity"] = ctk.CTkEntry(form, width=400)
+        self.entries["severity"] = ctk.CTkComboBox(
+            form, 
+            values=["Leve", "Moderado", "Severo"], 
+            width=400,
+            state="readonly"
+        )
         self.entries["severity"].grid(row=2, column=1, pady=5)
 
         self.entries["unit"] = ctk.CTkEntry(form, width=400)
         self.entries["unit"].grid(row=3, column=1, pady=5)
+    
+    def load_sign(self):
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                query = "SELECT * FROM sign"
+                cursor.execute(query)
+                resultados = cursor.fetchall()
+
+        except Exception as e:
+            print(f"Error durante la consulta de signos: {e}")
+            Error(self, "Error al consultar las signos.")
+            return  
+
+        finally:
+            connection.close()
+
+        self.signs = [
+            {
+                "id_sign": row[0],
+                "sign_name": row[1],
+                "description": row[2],
+                "severity": row[3],       
+                "unit": row[4]    
+            }
+            for row in resultados
+        ]
 
     def load_sample_data(self):
-        self.signs = [
-            {"id": 1, "sign_name": "Glucosa elevada", "description": "Nivel alto de glucosa en sangre", "severity": "Alta", "unit": "mg/dL"},
-            {"id": 2, "sign_name": "Presión arterial alta", "description": "Presión sistólica >140 mmHg", "severity": "Moderada", "unit": "mmHg"}
-        ]
+       self.load_sign()
 
     def update_list(self):
         self.tree.delete(*self.tree.get_children())
@@ -90,7 +127,7 @@ class SignManager(ctk.CTkFrame):
         for sign in self.signs:
             if search_term in sign["sign_name"].lower():
                 self.tree.insert("", "end", values=(
-                    sign["id"],
+                    sign["id_sign"],
                     sign["sign_name"],
                     sign["description"][:50] + "..." if len(sign["description"]) > 50 else sign["description"],
                     sign["severity"],
@@ -101,7 +138,6 @@ class SignManager(ctk.CTkFrame):
         self.current_sign = None
         self.entries["sign_name"].delete(0, 'end')
         self.entries["description"].delete("1.0", "end")
-        self.entries["severity"].delete(0, 'end')
         self.entries["unit"].delete(0, 'end')
         self.show_edit_screen()
 
@@ -112,7 +148,7 @@ class SignManager(ctk.CTkFrame):
             return
         
         sign_id = self.tree.item(selected[0])['values'][0]
-        self.current_sign = next(s for s in self.signs if s['id'] == sign_id)
+        self.current_sign = next(s for s in self.signs if s['id_sign'] == sign_id)
 
         self.entries["sign_name"].delete(0, 'end')
         self.entries["sign_name"].insert(0, self.current_sign["sign_name"])
@@ -120,8 +156,6 @@ class SignManager(ctk.CTkFrame):
         self.entries["description"].delete("1.0", "end")
         self.entries["description"].insert("1.0", self.current_sign["description"])
 
-        self.entries["severity"].delete(0, 'end')
-        self.entries["severity"].insert(0, self.current_sign["severity"])
 
         self.entries["unit"].delete(0, 'end')
         self.entries["unit"].insert(0, self.current_sign["unit"])
@@ -136,8 +170,30 @@ class SignManager(ctk.CTkFrame):
 
         if messagebox.askyesno("Confirmar", "¿Eliminar el signo seleccionado?"):
             sign_id = self.tree.item(selected[0])['values'][0]
-            self.signs = [s for s in self.signs if s['id'] != sign_id]
+
+            db = ConectionDB()
+            connection = db.connect()
+
+            if connection is None:
+                Error(self, "No se pudo conectar a la base de datos")
+                return
+
+            try:
+                with connection.cursor() as cursor:
+                    query = "DELETE FROM Sign WHERE id_sign = %s"
+                    cursor.execute(query, (sign_id,))
+                    connection.commit()
+
+            except Exception as e:
+                print(f"Error al eliminar el signo: {e}")
+                Error(self, "Ocurrió un error al eliminar el signo.")
+            finally:
+                connection.close()
+
+            # También eliminar de la lista local
+            self.signs = [s for s in self.signs if s['id_sign'] != sign_id]
             self.update_list()
+            messagebox.showinfo("Éxito", "Signo eliminado correctamente")
 
     def save_sign(self):
         name = self.entries["sign_name"].get().strip()
@@ -145,19 +201,64 @@ class SignManager(ctk.CTkFrame):
             messagebox.showerror("Error", "El nombre del signo es obligatorio")
             return
 
-        data = {
-            "sign_name": name,
-            "description": self.entries["description"].get("1.0", "end-1c").strip(),
-            "severity": self.entries["severity"].get().strip(),
-            "unit": self.entries["unit"].get().strip()
-        }
+        description = self.entries["description"].get("1.0", "end-1c").strip()
+        severity = self.entries["severity"].get().strip()
+        unit = self.entries["unit"].get().strip()
 
-        if self.current_sign:
-            self.current_sign.update(data)
-        else:
-            new_id = max((s["id"] for s in self.signs), default=0) + 1
-            data["id"] = new_id
-            self.signs.append(data)
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                if self.current_sign:
+                    # Actualizar signo existente
+                    query = """
+                        UPDATE Sign
+                        SET sign_name = %s, description = %s, severity = %s, unit = %s
+                        WHERE id_sign = %s
+                    """
+                    cursor.execute(query, (
+                        name,
+                        description,
+                        severity,
+                        unit,
+                        self.current_sign["id_sign"]
+                    ))
+                    self.current_sign.update({
+                        "sign_name": name,
+                        "description": description,
+                        "severity": severity,
+                        "unit": unit
+                    })
+                else:
+                    # Insertar nuevo signo
+                    query = """
+                        INSERT INTO Sign (sign_name, description, severity, unit)
+                        VALUES (%s, %s, %s, %s)
+                    """
+                    cursor.execute(query, (name, description, severity, unit))
+                    connection.commit()
+                    new_id = cursor.lastrowid
+                    self.signs.append({
+                        "id_sign": new_id,
+                        "sign_name": name,
+                        "description": description,
+                        "severity": severity,
+                        "unit": unit
+                    })
+
+            messagebox.showinfo("Éxito", "Signo guardado correctamente")
+
+        except Exception as e:
+            print(f"Error al guardar el signo: {e}")
+            Error(self, "No se pudo guardar el signo en la base de datos.")
+
+        finally:
+            connection.close()
 
         self.show_main_screen()
 
