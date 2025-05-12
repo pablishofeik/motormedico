@@ -180,7 +180,13 @@ class DiseaseManager(ctk.CTkFrame):
                 ))
 
     def new_disease(self):
-        self.current_disease = None
+        self.current_disease = {
+            'id_disease': None,
+            'name': '',
+            'description': '',
+            'symptoms': [],  # Lista explícita
+            'signs': []      # Lista explícita
+        }
         self.name_entry.delete(0, 'end')
         self.desc_entry.delete('1.0', 'end')
         self.load_diseases()
@@ -200,6 +206,30 @@ class DiseaseManager(ctk.CTkFrame):
         self.show_edit_screen()
 
     def load_disease_data(self):
+        if not self.current_disease:
+            return
+        
+        db = ConectionDB()
+        connection = db.connect()
+        
+        try:
+            with connection.cursor() as cursor:
+                # Cargar síntomas
+                cursor.execute("""
+                    SELECT id_symptom FROM Disease_Symptom 
+                    WHERE id_disease = %s
+                """, (self.current_disease['id_disease'],))
+                self.current_disease['symptoms'] = [row[0] for row in cursor.fetchall()]
+                
+                # Cargar signos
+                cursor.execute("""
+                    SELECT id_sign FROM Disease_Sign 
+                    WHERE id_disease = %s
+                """, (self.current_disease['id_disease'],))
+                self.current_disease['signs'] = [row[0] for row in cursor.fetchall()]
+                
+        finally:
+            connection.close()
         if self.current_disease:
             self.name_entry.delete(0, 'end')
             self.name_entry.insert(0, self.current_disease['name'])
@@ -298,34 +328,69 @@ class DiseaseManager(ctk.CTkFrame):
         name = self.name_entry.get().strip()
         description = self.desc_entry.get("1.0", "end-1c").strip()
 
-        if not name:
-            messagebox.showerror("Error", "El nombre es obligatorio")
+        # Validar campos básicos
+        if error := self.validate_name(name):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_description(description):
+            messagebox.showerror("Error", error)
+            return
+        
+        # Validar unicidad del nombre
+        if not self.validate_unique_name(name):
+            messagebox.showerror("Error", "Ya existe una enfermedad con este nombre")
+            return
+            
+        # Validar asociaciones
+        if error := self.validate_associations():
+            messagebox.showerror("Error", error)
             return
 
+        # Resto del código de guardado...
         db = ConectionDB()
         connection = db.connect()
 
-        if connection is None:
-            Error(self, "No se pudo conectar a la base de datos")
-            return
-
         try:
             with connection.cursor() as cursor:
-                if self.current_disease:
-                    # Actualizar enfermedad existente
-                    query = "UPDATE Disease SET name=%s, description=%s WHERE id_disease=%s"
-                    cursor.execute(query, (name, description, self.current_disease['id_disease']))
+                # Operaciones de guardado
+                if self.current_disease.get('id_disease'):
+                    # Actualización
+                    cursor.execute("""
+                        UPDATE Disease 
+                        SET name = %s, description = %s 
+                        WHERE id_disease = %s
+                    """, (name, description, self.current_disease['id_disease']))
                 else:
-                    # Insertar nueva enfermedad
-                    query = "INSERT INTO Disease (name, description) VALUES (%s, %s)"
-                    cursor.execute(query, (name, description))
-            connection.commit()
-            messagebox.showinfo("Éxito", "Enfermedad guardada correctamente")
-            self.show_main_screen()
+                    # Inserción
+                    cursor.execute("""
+                        INSERT INTO Disease (name, description) 
+                        VALUES (%s, %s)
+                    """, (name, description))
+                    self.current_disease['id_disease'] = cursor.lastrowid
+
+                # Manejo de asociaciones
+                cursor.execute("DELETE FROM Disease_Symptom WHERE id_disease = %s", 
+                            (self.current_disease['id_disease'],))
+                for symptom_id in self.current_disease['symptoms']:
+                    cursor.execute("""
+                        INSERT INTO Disease_Symptom (id_disease, id_symptom)
+                        VALUES (%s, %s)
+                    """, (self.current_disease['id_disease'], symptom_id))
+                
+                cursor.execute("DELETE FROM Disease_Sign WHERE id_disease = %s", 
+                            (self.current_disease['id_disease'],))
+                for sign_id in self.current_disease['signs']:
+                    cursor.execute("""
+                        INSERT INTO Disease_Sign (id_disease, id_sign)
+                        VALUES (%s, %s)
+                    """, (self.current_disease['id_disease'], sign_id))
+                    
+                connection.commit()
 
         except Exception as e:
+            connection.rollback()
             print(f"Error al guardar enfermedad: {e}")
-            Error(self, "No se pudo guardar la enfermedad.")
+            Error(self, f"Error al guardar: {str(e)}")
         finally:
             connection.close()
 
@@ -358,3 +423,42 @@ class DiseaseManager(ctk.CTkFrame):
                 Error(self, "No se pudo eliminar. ¿Tiene asociaciones?")
             finally:
                 connection.close()
+
+    def validate_name(self, name):
+        if not name.strip():
+            return "El nombre de la enfermedad es obligatorio"
+        if len(name) > 100:
+            return "El nombre no puede exceder 100 caracteres"
+        if not all(c.isalpha() or c.isspace() or c in "áéíóúñÁÉÍÓÚÑ-" for c in name):
+            return "Solo se permiten letras, espacios y guiones"
+        return None
+
+    def validate_description(self, description):
+        if not description.strip():
+            return "La descripción no puede estar vacía"
+        if len(description) > 500:
+            return "La descripción no puede exceder 500 caracteres"
+        return None
+
+    def validate_associations(self):
+        if not len(self.current_disease.get('symptoms', [])) + \
+               len(self.current_disease.get('signs', [])) > 0:
+            return "Debe asociar al menos un síntoma o signo"
+        return None
+
+    def validate_unique_name(self, name):
+        db = ConectionDB()
+        connection = db.connect()
+        try:
+            with connection.cursor() as cursor:
+                query = "SELECT id_disease FROM Disease WHERE name = %s"
+                params = [name]
+                
+                if self.current_disease and self.current_disease.get('id_disease'):
+                    query += " AND id_disease != %s"
+                    params.append(self.current_disease['id_disease'])
+                
+                cursor.execute(query, params)
+                return cursor.fetchone() is None
+        finally:
+            connection.close()

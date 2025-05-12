@@ -150,12 +150,14 @@ class SignManager(ctk.CTkFrame):
         sign_id = self.tree.item(selected[0])['values'][0]
         self.current_sign = next(s for s in self.signs if s['id_sign'] == sign_id)
 
+        # Cargar datos en el formulario
         self.entries["sign_name"].delete(0, 'end')
         self.entries["sign_name"].insert(0, self.current_sign["sign_name"])
 
         self.entries["description"].delete("1.0", "end")
         self.entries["description"].insert("1.0", self.current_sign["description"])
 
+        self.entries["severity"].set(self.current_sign["severity"])
 
         self.entries["unit"].delete(0, 'end')
         self.entries["unit"].insert(0, self.current_sign["unit"])
@@ -168,43 +170,83 @@ class SignManager(ctk.CTkFrame):
             messagebox.showwarning("Error", "Seleccione un signo primero")
             return
 
-        if messagebox.askyesno("Confirmar", "¿Eliminar el signo seleccionado?"):
-            sign_id = self.tree.item(selected[0])['values'][0]
+        sign_id = self.tree.item(selected[0])['values'][0]
+        sign_name = self.tree.item(selected[0])['values'][1]
 
-            db = ConectionDB()
-            connection = db.connect()
-
-            if connection is None:
-                Error(self, "No se pudo conectar a la base de datos")
-                return
-
-            try:
-                with connection.cursor() as cursor:
-                    query = "DELETE FROM Sign WHERE id_sign = %s"
-                    cursor.execute(query, (sign_id,))
-                    connection.commit()
-
-            except Exception as e:
-                print(f"Error al eliminar el signo: {e}")
-                Error(self, "Ocurrió un error al eliminar el signo.")
-            finally:
-                connection.close()
-
-            # También eliminar de la lista local
-            self.signs = [s for s in self.signs if s['id_sign'] != sign_id]
-            self.update_list()
-            messagebox.showinfo("Éxito", "Signo eliminado correctamente")
-
-    def save_sign(self):
-        name = self.entries["sign_name"].get().strip()
-        if not name:
-            messagebox.showerror("Error", "El nombre del signo es obligatorio")
+        confirm = messagebox.askyesno(
+            "Confirmar Eliminación", 
+            f"¿Está seguro de eliminar el signo '{sign_name}'?\nEsta acción no se puede deshacer."
+        )
+        
+        if not confirm:
             return
 
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                # Verificar si está asociado a alguna enfermedad
+                cursor.execute("SELECT COUNT(*) FROM Disease_Sign WHERE id_sign = %s", (sign_id,))
+                if cursor.fetchone()[0] > 0:
+                    messagebox.showerror(
+                        "Error", 
+                        "No se puede eliminar este signo porque está asociado a enfermedades.\n"
+                        "Elimine primero las asociaciones correspondientes."
+                    )
+                    return
+
+                # Verificar si está asociado a alguna consulta
+                cursor.execute("SELECT COUNT(*) FROM Consultation_Sign WHERE id_sign = %s", (sign_id,))
+                if cursor.fetchone()[0] > 0:
+                    messagebox.showerror(
+                        "Error", 
+                        "No se puede eliminar este signo porque está asociado a consultas.\n"
+                        "Elimine primero las consultas relacionadas."
+                    )
+                    return
+
+                # Eliminar el signo
+                cursor.execute("DELETE FROM Sign WHERE id_sign = %s", (sign_id,))
+                connection.commit()
+
+                # Actualizar lista local
+                self.signs = [s for s in self.signs if s['id_sign'] != sign_id]
+                self.update_list()
+                messagebox.showinfo("Éxito", "Signo eliminado correctamente")
+
+        except Exception as e:
+            print(f"Error al eliminar signo: {e}")
+            Error(self, f"No se pudo eliminar el signo: {str(e)}")
+        finally:
+            connection.close()
+
+    def save_sign(self):
+        # Obtener valores
+        name = self.entries["sign_name"].get().strip()
         description = self.entries["description"].get("1.0", "end-1c").strip()
-        severity = self.entries["severity"].get().strip()
+        severity = self.entries["severity"].get()
         unit = self.entries["unit"].get().strip()
 
+        # Validar campos
+        if error := self.validate_sign_name(name):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_description(description):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_severity(severity):
+            messagebox.showerror("Error", error)
+            return
+        if error := self.validate_unit(unit):
+            messagebox.showerror("Error", error)
+            return
+
+        # Conexión a la base de datos
         db = ConectionDB()
         connection = db.connect()
 
@@ -217,7 +259,7 @@ class SignManager(ctk.CTkFrame):
                 if self.current_sign:
                     # Actualizar signo existente
                     query = """
-                        UPDATE Sign
+                        UPDATE Sign 
                         SET sign_name = %s, description = %s, severity = %s, unit = %s
                         WHERE id_sign = %s
                     """
@@ -228,6 +270,25 @@ class SignManager(ctk.CTkFrame):
                         unit,
                         self.current_sign["id_sign"]
                     ))
+                else:
+                    # Insertar nuevo signo
+                    query = """
+                        INSERT INTO Sign (sign_name, description, severity, unit)
+                        VALUES (%s, %s, %s, %s)
+                    """
+                    cursor.execute(query, (
+                        name,
+                        description,
+                        severity,
+                        unit
+                    ))
+                    # Obtener el ID del nuevo registro
+                    new_id = cursor.lastrowid
+
+                connection.commit()
+
+                # Actualizar lista local
+                if self.current_sign:
                     self.current_sign.update({
                         "sign_name": name,
                         "description": description,
@@ -235,14 +296,6 @@ class SignManager(ctk.CTkFrame):
                         "unit": unit
                     })
                 else:
-                    # Insertar nuevo signo
-                    query = """
-                        INSERT INTO Sign (sign_name, description, severity, unit)
-                        VALUES (%s, %s, %s, %s)
-                    """
-                    cursor.execute(query, (name, description, severity, unit))
-                    connection.commit()
-                    new_id = cursor.lastrowid
                     self.signs.append({
                         "id_sign": new_id,
                         "sign_name": name,
@@ -251,16 +304,14 @@ class SignManager(ctk.CTkFrame):
                         "unit": unit
                     })
 
-            messagebox.showinfo("Éxito", "Signo guardado correctamente")
+                messagebox.showinfo("Éxito", "Signo guardado correctamente")
+                self.show_main_screen()
 
         except Exception as e:
-            print(f"Error al guardar el signo: {e}")
-            Error(self, "No se pudo guardar el signo en la base de datos.")
-
+            print(f"Error al guardar signo: {e}")
+            Error(self, f"No se pudo guardar el signo: {str(e)}")
         finally:
             connection.close()
-
-        self.show_main_screen()
 
     def show_main_screen(self):
         self.edit_frame.pack_forget()
@@ -270,3 +321,56 @@ class SignManager(ctk.CTkFrame):
     def show_edit_screen(self):
         self.main_frame.pack_forget()
         self.edit_frame.pack(fill="both", expand=True)
+
+    def validate_sign_name(self, name):
+        if not name.strip():
+            return "El nombre del signo no puede estar vacío"
+        if len(name) > 100:
+            return "El nombre no puede exceder 100 caracteres"
+        if not all(c.isalpha() or c.isspace() or c in "áéíóúñÁÉÍÓÚÑ-" for c in name):
+            return "El nombre solo puede contener letras, espacios y guiones"
+        return None
+
+    def validate_description(self, description):
+        if not description.strip():
+            return "La descripción no puede estar vacía"
+        if len(description) > 500:
+            return "La descripción no puede exceder 500 caracteres"
+        return None
+
+    def validate_severity(self, severity):
+        valid_severities = ["Leve", "Moderado", "Severo"]
+        if severity not in valid_severities:
+            return "Seleccione una severidad válida"
+        return None
+
+    def validate_unit(self, unit):
+        if not unit.strip():
+            return "La unidad de medida no puede estar vacía"
+        if len(unit) > 20:
+            return "La unidad no puede exceder 20 caracteres"
+        if not all(c.isalpha() or c in "/°%" for c in unit):
+            return "Unidad no válida (solo letras y símbolos básicos)"
+        return None
+
+    def validate_sign_uniqueness(self, name, current_id=None):
+        """Valida que el nombre del signo sea único"""
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return False
+
+        try:
+            with connection.cursor() as cursor:
+                if current_id:
+                    query = "SELECT COUNT(*) FROM Sign WHERE sign_name = %s AND id_sign != %s"
+                    cursor.execute(query, (name, current_id))
+                else:
+                    query = "SELECT COUNT(*) FROM Sign WHERE sign_name = %s"
+                    cursor.execute(query, (name,))
+                
+                return cursor.fetchone()[0] == 0
+        finally:
+            connection.close()
