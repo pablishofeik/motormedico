@@ -16,14 +16,8 @@ class PatientManager(ctk.CTkFrame):
         # Datos de ejemplo
         self.patients = []
         self.consultations = []
-        self.signs = [
-            {"id": 1, "name": "Presión arterial", "unit": "mmHg"},
-            {"id": 2, "name": "Frecuencia cardíaca", "unit": "lpm"}
-        ]
-        self.symptoms = [
-            {"id": 1, "name": "Dolor de cabeza"},
-            {"id": 2, "name": "Mareos"}
-        ]
+        self.signs = []
+        self.symptoms = []
         
         # Configuración de la interfaz
         self.main_frame = ctk.CTkFrame(self, width=1024, height=600, fg_color="#ffffff")
@@ -31,7 +25,10 @@ class PatientManager(ctk.CTkFrame):
         
         self.create_interfaces()
         self.load_patients()
+        self.load_signs()
+        self.load_symptom()
         self.show_view_patients()
+        
 
     def load_patients(self):
         db = ConectionDB()
@@ -67,6 +64,72 @@ class PatientManager(ctk.CTkFrame):
             for row in resultados
         ]
 
+    def load_signs(self):
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                # Ajusta la consulta a tu tabla y campos
+                query = "SELECT * FROM Sign"
+                cursor.execute(query)
+                resultados = cursor.fetchall()
+
+        except Exception as e:
+            print(f"Error durante la consulta: {e}")
+            Error(self, "Error al consultar la base de datos.")
+        finally:
+            connection.close()
+
+        # Datos de ejemplo
+        self.signs = [
+            {
+                "id_sign": row[0],
+                "sign_name": row[1],
+                "description": row[2],
+                "severity": row[3],
+                "unit": row[4]
+            }
+            for row in resultados
+        ]
+
+    def load_symptom(self):
+        db = ConectionDB()
+        connection = db.connect()
+
+        if connection is None:
+            Error(self, "No se pudo conectar a la base de datos")
+            return
+
+        try:
+            with connection.cursor() as cursor:
+                # Ajusta la consulta a tu tabla y campos
+                query = "SELECT * FROM Symptom"
+                cursor.execute(query)
+                resultados = cursor.fetchall()
+
+        except Exception as e:
+            print(f"Error durante la consulta: {e}")
+            Error(self, "Error al consultar la base de datos.")
+        finally:
+            connection.close()
+
+        # Datos de ejemplo
+        self.symptoms = [
+            {
+                "id_symptom": row[0],
+                "symptom_name": row[1],
+                "description": row[2],
+                "intensity": row[3],
+                "duration": row[4]
+            }
+            for row in resultados
+        ]
+    
     def create_interfaces(self):
         # Frame superior con botones
         self.top_frame = ctk.CTkFrame(self.main_frame, height=50, fg_color="#f8f9fa")
@@ -81,6 +144,7 @@ class PatientManager(ctk.CTkFrame):
         self.create_update_patient_ui()
         self.create_view_patient_ui()
         self.create_consultation_ui()
+        self.create_consultation_history_ui()
         
         # Botón de regreso
         self.create_bottom_buttons()
@@ -91,6 +155,8 @@ class PatientManager(ctk.CTkFrame):
         ctk.CTkButton(self.top_frame, text="Eliminar", width=80, command=self.show_delete_patient).pack(side="left", padx=5)
         ctk.CTkButton(self.top_frame, text="Ver", width=80, command=self.show_view_patients).pack(side="left", padx=5)
         ctk.CTkButton(self.top_frame, text="Nueva Consulta", width=80, command=self.show_consultation).pack(side="left", padx=5)
+        ctk.CTkButton(self.top_frame, text="Historial", width=80, command=self.show_consultation_history).pack(side="left", padx=5)  # Nuevo botón
+
 
     # Métodos para mostrar las diferentes pantallas
     def show_add_patient(self):
@@ -132,7 +198,8 @@ class PatientManager(ctk.CTkFrame):
             self.deletepatient_screen,
             self.updatepatient_screen,
             self.viewpatient_screen,
-            self.consultation_screen
+            self.consultation_screen, 
+            self.history_screen
         ]
         for s in screens:
             s.pack_forget()
@@ -314,12 +381,28 @@ class PatientManager(ctk.CTkFrame):
 
         try:
             with connection.cursor() as cursor:
-                query = "DELETE FROM Patient WHERE id_patient = %s"
-                cursor.execute(query, (patient_id,))
+                # 1. Obtener todas las consultas asociadas al paciente
+                cursor.execute("SELECT id_consultation FROM Consultation WHERE id_patient = %s", (patient_id,))
+                consultations = cursor.fetchall()
+
+                for (id_consultation,) in consultations:
+                    # Eliminar registros relacionados con la consulta
+                    cursor.execute("DELETE FROM Consultation_Sign WHERE id_consultation = %s", (id_consultation,))
+                    cursor.execute("DELETE FROM Consultation_Symptom WHERE id_consultation = %s", (id_consultation,))
+                    cursor.execute("DELETE FROM Consultation_LabTest_Result WHERE id_consultation = %s", (id_consultation,))
+                    cursor.execute("DELETE FROM Consultation_PostMortemTest_Result WHERE id_consultation = %s", (id_consultation,))
+
+                # 2. Eliminar las consultas del paciente
+                cursor.execute("DELETE FROM Consultation WHERE id_patient = %s", (patient_id,))
+
+                # 3. Finalmente, eliminar el paciente
+                cursor.execute("DELETE FROM Patient WHERE id_patient = %s", (patient_id,))
+
                 connection.commit()
             connection.close()
+
         except Exception as e:
-            print(f"Error al eliminar el paciente: {e}")
+            print(f"Error al eliminar el paciente de la base de datos: {e}")
             raise
 
     def create_update_patient_ui(self):
@@ -546,7 +629,7 @@ class PatientManager(ctk.CTkFrame):
         frame = ctk.CTkFrame(self.signs_container)
         frame.pack(fill="x", pady=2)
         
-        signo_cb = ctk.CTkComboBox(frame, values=[s['name'] for s in self.signs], width=200)
+        signo_cb = ctk.CTkComboBox(frame, values=[s['sign_name'] for s in self.signs], width=200)
         signo_cb.pack(side="left", padx=5)
         
         ctk.CTkEntry(frame, placeholder_text="Valor", width=100).pack(side="left", padx=5)
@@ -557,7 +640,7 @@ class PatientManager(ctk.CTkFrame):
         frame = ctk.CTkFrame(self.symptoms_container)
         frame.pack(fill="x", pady=2)
         
-        sintoma_cb = ctk.CTkComboBox(frame, values=[s['name'] for s in self.symptoms], width=200)
+        sintoma_cb = ctk.CTkComboBox(frame, values=[s['symptom_name'] for s in self.symptoms], width=200)
         sintoma_cb.pack(side="left", padx=5)
         
         ctk.CTkComboBox(frame, values=["Leve", "Moderado", "Intenso"], width=120).pack(side="left", padx=5)
@@ -568,86 +651,98 @@ class PatientManager(ctk.CTkFrame):
         if not self.current_patient:
             messagebox.showerror("Error", "No hay paciente seleccionado")
             return
-            
+
         consultation_data = {
-            "patient_id": self.current_patient["id_patient"],
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "id_patient": self.current_patient["id_patient"],
+            "consultation_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "signs": [],
             "symptoms": []
         }
-        
+
         # Recopilar signos
         for frame in self.signs_container.winfo_children():
             if isinstance(frame, ctk.CTkFrame):
                 children = frame.winfo_children()
                 sign_name = children[0].get()
                 sign_data = {
-                    "name": sign_name,
+                    "sign_name": sign_name,
                     "value": children[1].get(),
-                    "severity": children[2].get(),
+                    "severity": children[2].get()
                 }
                 consultation_data["signs"].append(sign_data)
-        
+
         # Recopilar síntomas
         for frame in self.symptoms_container.winfo_children():
             if isinstance(frame, ctk.CTkFrame):
                 children = frame.winfo_children()
                 symptom_name = children[0].get()
                 symptom_data = {
-                    "name": symptom_name,
+                    "symptom_name": symptom_name,
                     "intensity": children[1].get(),
-                    "duration": children[2].get(),
+                    "duration": children[2].get()
                 }
                 consultation_data["symptoms"].append(symptom_data)
-        
+
         # Validar consulta
         if error := self.validate_consultation_data(consultation_data):
             messagebox.showerror("Error", error)
             return
-        
-        # Guardar en base de datos
+
         try:
             db = ConectionDB()
             connection = db.connect()
-            
+
             with connection.cursor() as cursor:
                 # Insertar consulta
                 cursor.execute(
-                    "INSERT INTO Consultation (patient_id, date) VALUES (%s, %s)",
-                    (consultation_data["patient_id"], consultation_data["date"])
+                    "INSERT INTO Consultation (id_patient, consultation_date) VALUES (%s, %s)",
+                    (consultation_data["id_patient"], consultation_data["consultation_date"])
                 )
-                consultation_id = cursor.lastrowid
-                
-                # Insertar signos
+                consultation_id = cursor.lastrowid  # ID autogenerado
+
+                # Insertar signos clínicos
                 for sign in consultation_data["signs"]:
+                    sign_id = next(s["id_sign"] for s in self.signs if s["sign_name"] == sign["sign_name"])
                     cursor.execute(
-                        """INSERT INTO ClinicalSigns (consultation_id, sign_id, value, severity)
-                        VALUES (%s, %s, %s, %s)""",
-                        (consultation_id, 
-                         next(s["id"] for s in self.signs if s["name"] == sign["name"]),
-                         sign["value"],
-                         sign["severity"])
+                        """
+                        INSERT INTO Consultation_Sign (id_consultation, id_sign, value, severity, date_recorded)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """,
+                        (
+                            consultation_id,
+                            sign_id,
+                            sign["value"],
+                            sign["severity"],
+                            consultation_data["consultation_date"]
+                        )
                     )
-                
+
                 # Insertar síntomas
                 for symptom in consultation_data["symptoms"]:
+                    symptom_id = next(s["id_symptom"] for s in self.symptoms if s["symptom_name"] == symptom["symptom_name"])
                     cursor.execute(
-                        """INSERT INTO Symptoms (consultation_id, symptom_id, intensity, duration)
-                        VALUES (%s, %s, %s, %s)""",
-                        (consultation_id,
-                         next(s["id"] for s in self.symptoms if s["name"] == symptom["name"]),
-                         symptom["intensity"],
-                         symptom["duration"])
+                        """
+                        INSERT INTO Consultation_Symptom (id_consultation, id_symptom, intensity, duration, date_recorded)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """,
+                        (
+                            consultation_id,
+                            symptom_id,
+                            symptom["intensity"],
+                            symptom["duration"],
+                            consultation_data["consultation_date"]
+                        )
                     )
-                
+
                 connection.commit()
-            
+
             messagebox.showinfo("Éxito", "Consulta guardada correctamente")
             self.show_view_patients()
-            
+
         except Exception as e:
             print(f"Error al guardar consulta: {e}")
             messagebox.showerror("Error", f"No se pudo guardar la consulta: {str(e)}")
+
         finally:
             if 'connection' in locals():
                 connection.close()
@@ -734,4 +829,85 @@ class PatientManager(ctk.CTkFrame):
                 return f"Valor inválido para {sign['name']} (debe ser numérico)"
         
         return None
+    
+    def create_consultation_history_ui(self):
+        # Crear la pantalla de historial de consultas
+        self.history_screen = ctk.CTkFrame(self.main_frame, fg_color="#ffffff")
+        
+        # Treeview para mostrar el historial
+        columns = ("ID Consulta", "Fecha", "Signos", "Síntomas", "Notas")
+        self.history_tree = ttk.Treeview(self.history_screen, columns=columns, show="headings")
+        
+        # Configurar columnas
+        for col in columns:
+            self.history_tree.heading(col, text=col)
+            self.history_tree.column(col, width=150)
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(self.history_screen, orient="vertical", command=self.history_tree.yview)
+        self.history_tree.configure(yscrollcommand=scrollbar.set)
+        
+        # Posicionamiento
+        self.history_tree.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Botón de regreso
+        ctk.CTkButton(self.history_screen, text="Regresar", command=self.show_view_patients).pack(pady=10)
+
+    def show_consultation_history(self):
+        selected = self.view_tree.selection()
+        if not selected:
+            messagebox.showwarning("Error", "Seleccione un paciente primero")
+            return
+            
+        patient_id = self.view_tree.item(selected[0])["values"][0]
+        self.current_patient = next(p for p in self.patients if p["id_patient"] == patient_id)
+        self.load_consultation_history()
+        self.show_screen(self.history_screen)
+
+    def load_consultation_history(self):
+        # Limpiar treeview
+        for item in self.history_tree.get_children():
+            self.history_tree.delete(item)
+        
+        # Cargar datos de la base de datos
+        db = ConectionDB()
+        connection = db.connect()
+        
+        try:
+            with connection.cursor() as cursor:
+                # Consulta principal
+                query = """
+                SELECT 
+                    c.id_consultation,
+                    c.consultation_date,
+                    c.notes,
+                    GROUP_CONCAT(DISTINCT s.sign_name SEPARATOR ', ') AS signos,
+                    GROUP_CONCAT(DISTINCT sym.symptom_name SEPARATOR ', ') AS sintomas
+                FROM Consultation c
+                LEFT JOIN Consultation_Sign cs ON c.id_consultation = cs.id_consultation
+                LEFT JOIN Sign s ON cs.id_sign = s.id_sign
+                LEFT JOIN Consultation_Symptom csy ON c.id_consultation = csy.id_consultation
+                LEFT JOIN Symptom sym ON csy.id_symptom = sym.id_symptom
+                WHERE c.id_patient = %s
+                GROUP BY c.id_consultation
+                ORDER BY c.consultation_date DESC
+                """
+                cursor.execute(query, (self.current_patient["id_patient"],))
+                consultas = cursor.fetchall()
+                
+                # Insertar en el treeview
+                for consulta in consultas:
+                    self.history_tree.insert("", "end", values=(
+                        consulta[0],
+                        consulta[1].strftime("%Y-%m-%d %H:%M:%S"),
+                        consulta[3] if consulta[3] else "N/A",
+                        consulta[4] if consulta[4] else "N/A",
+                        consulta[2] if consulta[2] else "Sin notas"
+                    ))
+                
+        except Exception as e:
+            Error(self, f"Error cargando historial: {str(e)}")
+        finally:
+            connection.close()
     
